@@ -288,9 +288,9 @@ private fun ScrMainPanel(
             ScrCircleStatus(
                 modifier = Modifier.weight(1f),
                 title = "This month",
-                main = snapshot.monthBytes?.let(::formatBytes) ?: "—",
+                main = snapshot.monthBytes?.let(::formatDashboardBytes) ?: "—",
                 secondary = if (snapshot.usageAccessGranted) {
-                    "of ${formatBytes(monthlyLimitBytes)}"
+                    "of ${formatDashboardBytes(monthlyLimitBytes)}"
                 } else {
                     "Usage Access needed"
                 },
@@ -302,7 +302,7 @@ private fun ScrMainPanel(
             ScrCircleStatus(
                 modifier = Modifier.weight(1f),
                 title = "Last 3 days",
-                main = snapshot.threeDayBytes?.let(::formatBytes) ?: "—",
+                main = snapshot.threeDayBytes?.let(::formatDashboardBytes) ?: "—",
                 secondary = if (snapshot.usageAccessGranted) "Mobile data" else "Usage Access needed",
                 progress = threeDayProgress,
                 compact = compact,
@@ -684,7 +684,7 @@ private fun ThroughputBadge(icon: ImageVector, bytesPerSecond: Long?, prefix: St
     }
 }
 
-private fun formatBytes(bytes: Long): String {
+private fun formatDashboardBytes(bytes: Long): String {
     if (bytes < 1024) return "$bytes B"
     val kb = bytes / 1024.0
     if (kb < 1024) return String.format(Locale.US, "%.0f KB", kb)
