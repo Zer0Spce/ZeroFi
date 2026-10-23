@@ -9,6 +9,7 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.zer0spce.zerofi.data.AppPreferences
+import com.zer0spce.zerofi.platform.HotspotLaunchController
 import com.zer0spce.zerofi.ui.ZeroFiApp
 
 class MainActivity : ComponentActivity() {
@@ -18,9 +19,6 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         preferences = AppPreferences(this)
 
-        // ZeroFi behaves like a pocket-router dashboard, but it must never
-        // automatically enter Android screen pinning / lock-task mode or launch
-        // accessibility-based hotspot automation. Those actions are user-driven.
         runCatching { setKeepScreenOn(preferences.keepScreenOn) }
         runCatching { setImmersiveMode(preferences.immersiveMode) }
 
@@ -35,6 +33,17 @@ class MainActivity : ComponentActivity() {
             runCatching { setKeepScreenOn(preferences.keepScreenOn) }
             runCatching { setImmersiveMode(preferences.immersiveMode) }
         }
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        if (!::preferences.isInitialized) return
+
+        // Keep ZeroFi's automatic hotspot/accessibility helper. On first use it
+        // can open Accessibility settings for setup; once enabled it can run the
+        // hotspot flow automatically when ZeroFi returns to the foreground.
+        // Router Lock / Android screen pinning remains strictly manual.
+        runCatching { HotspotLaunchController.ensureConfiguredOrRun(this) }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
