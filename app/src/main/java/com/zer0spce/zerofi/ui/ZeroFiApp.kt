@@ -16,7 +16,7 @@ import com.zer0spce.zerofi.ui.theme.AccentTheme
 import com.zer0spce.zerofi.ui.theme.ZeroFiTheme
 import kotlinx.coroutines.delay
 
-enum class AppScreen { DASHBOARD, HOTSPOT, DEVICES, DATA, DISPLAY, SETTINGS }
+enum class AppScreen { DASHBOARD, HOTSPOT, DEVICES, DATA, DISPLAY, SETTINGS, DIAGNOSTICS, STANDBY }
 
 data class ZeroFiSettingsState(
     val accentTheme: AccentTheme, val darkMode: Boolean, val oledSaver: Boolean,
@@ -63,7 +63,7 @@ fun ZeroFiApp() {
         while (true) {
             monitor?.let { runCatching { it.snapshot(settings.cycleResetDay) }.getOrNull()?.let { s -> snapshot = s } }
             lockRunning = runCatching { RouterLockController.isLockTaskRunning(context) }.getOrDefault(false)
-            delay(3_000L)
+            delay(2_000L)
         }
     }
 
@@ -108,7 +108,10 @@ fun ZeroFiApp() {
                     { enabled ->
                         val r = runCatching { DedicatedModeController.setUserAppsSuspended(context, enabled) }.getOrNull()
                         if (r?.success == true) { preferences.dedicatedBatterySaver = enabled; settings = settings.copy(dedicatedBatterySaver = enabled) }
-                    }, { RouterController.openAppSettings(context) })
+                    }, { RouterController.openAppSettings(context) },
+                    { screen = AppScreen.DIAGNOSTICS }, { screen = AppScreen.STANDBY })
+                AppScreen.DIAGNOSTICS -> DiagnosticsScreen(snapshot, hotspotActive, detectedBand ?: settings.preferredBand) { screen = AppScreen.SETTINGS }
+                AppScreen.STANDBY -> StandbyScreen(snapshot, hotspotActive) { screen = AppScreen.DASHBOARD }
             }
 
             if (screen == AppScreen.SETTINGS) {
