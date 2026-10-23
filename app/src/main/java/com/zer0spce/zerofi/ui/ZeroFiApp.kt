@@ -194,11 +194,19 @@ fun ZeroFiApp() {
             preferences.hotspotSsid,
             preferences.hotspotPassword,
             openNetwork,
-        )
+        ) { success, message ->
+            preferences.hotspotProfileConfirmed = success
+            settings = settings.copy(hotspotProfileConfirmed = success)
+            Toast.makeText(
+                context,
+                if (success) "$message. QR code is ready." else message,
+                Toast.LENGTH_LONG,
+            ).show()
+        }
         if (started) {
             Toast.makeText(
                 context,
-                "Applying the real Android hotspot name and password…",
+                "Opening Wi-Fi hotspot settings and applying the profile…",
                 Toast.LENGTH_LONG,
             ).show()
         } else {
