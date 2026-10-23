@@ -6,7 +6,6 @@ import android.content.Context
 import androidx.compose.foundation.Image
 import androidx.compose.foundation.background
 import androidx.compose.foundation.border
-import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -26,6 +25,7 @@ import androidx.compose.ui.text.input.VisualTransformation
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
+import com.zer0spce.zerofi.platform.HotspotClientSnapshot
 
 @Composable
 fun HotspotScreenV2(
@@ -33,6 +33,7 @@ fun HotspotScreenV2(
     detectedBand: String?,
     liveSsid: String?,
     liveSecurity: String?,
+    clientSnapshot: HotspotClientSnapshot,
     ssid: String,
     password: String,
     security: String,
@@ -100,6 +101,7 @@ fun HotspotScreenV2(
                 }
                 Spacer(Modifier.height(6.dp))
                 HotspotV2Line("Live hotspot", liveSsid ?: "Not exposed by Android")
+                HotspotV2Line("Connected devices", if (clientSnapshot.available) clientSnapshot.clients.size.toString() else "Android restricted")
                 HotspotV2Line("Band", detectedBand ?: "System")
                 HotspotV2Line("Security", liveSecurity ?: localSecurity)
                 HotspotV2Line("QR", if (qrValid) "Ready" else "Locked until verified")
