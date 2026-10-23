@@ -37,6 +37,7 @@ enum class AppScreen {
 data class ZeroFiSettingsState(
     val accentTheme: AccentTheme,
     val darkMode: Boolean,
+    val oledSaver: Boolean,
     val dataLimitGb: Float,
     val cycleResetDay: Int,
     val keepScreenOn: Boolean,
@@ -67,6 +68,7 @@ fun ZeroFiApp() {
             ZeroFiSettingsState(
                 accentTheme = preferences.accentTheme,
                 darkMode = preferences.darkMode,
+                oledSaver = preferences.oledSaver,
                 dataLimitGb = preferences.dataLimitGb,
                 cycleResetDay = preferences.cycleResetDay,
                 keepScreenOn = preferences.keepScreenOn,
@@ -112,6 +114,7 @@ fun ZeroFiApp() {
     ZeroFiTheme(
         accentTheme = settings.accentTheme,
         darkMode = settings.darkMode,
+        oledSaver = settings.oledSaver,
     ) {
         when (screen) {
             AppScreen.DASHBOARD -> DashboardScreen(
@@ -121,6 +124,7 @@ fun ZeroFiApp() {
                 dataLimitGb = settings.dataLimitGb,
                 accentTheme = settings.accentTheme,
                 darkMode = settings.darkMode,
+                oledSaver = settings.oledSaver,
                 onAccentThemeChange = { theme ->
                     preferences.accentTheme = theme
                     settings = settings.copy(accentTheme = theme)
@@ -186,6 +190,7 @@ fun ZeroFiApp() {
             AppScreen.DISPLAY -> DisplayScreen(
                 keepScreenOn = settings.keepScreenOn,
                 immersiveMode = settings.immersiveMode,
+                oledSaver = settings.oledSaver,
                 onBack = { screen = AppScreen.DASHBOARD },
                 onKeepScreenOnChanged = { enabled ->
                     preferences.keepScreenOn = enabled
@@ -196,6 +201,14 @@ fun ZeroFiApp() {
                     preferences.immersiveMode = enabled
                     settings = settings.copy(immersiveMode = enabled)
                     activity?.setImmersiveMode(enabled)
+                },
+                onOledSaverChanged = { enabled ->
+                    preferences.oledSaver = enabled
+                    preferences.darkMode = if (enabled) true else preferences.darkMode
+                    settings = settings.copy(
+                        oledSaver = enabled,
+                        darkMode = if (enabled) true else settings.darkMode,
+                    )
                 },
                 onBrightnessChanged = { value -> activity?.setAppBrightness(value) },
                 onSystemBrightness = { activity?.setAppBrightness(null) },
