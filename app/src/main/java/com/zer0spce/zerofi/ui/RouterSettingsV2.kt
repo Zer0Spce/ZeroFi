@@ -46,6 +46,7 @@ fun RouterSettingsV2(
     onRequestNotifications: () -> Unit,
     onOpenAppSettings: () -> Unit,
     onControlCenter: () -> Unit,
+    onAutomationRules: () -> Unit,
     onSignalHistory: () -> Unit,
     onSpeedTest: () -> Unit,
     onNetworkTools: () -> Unit,
@@ -112,6 +113,7 @@ fun RouterSettingsV2(
                 }, valueRange = 0f..60f)
                 Text("Auto-off only runs when ZeroFi can verify the client count. It never guesses.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 8.sp)
                 SettingsSwitch("Keep hotspot while charging", "Never auto-off the hotspot while the phone is charging", settings.keepHotspotWhileCharging, onChecked = onKeepWhileChargingChanged)
+                Spacer(Modifier.height(7.dp)); SettingsAction("Quiet hours & charging rules", Icons.Rounded.Bedtime, onAutomationRules)
                 Spacer(Modifier.height(4.dp)); SettingsStatus("Wi-Fi QR", if (settings.hotspotProfileConfirmed) "Verified" else "Not verified")
             }
 
@@ -133,7 +135,7 @@ fun RouterSettingsV2(
                 Spacer(Modifier.height(6.dp))
                 SettingsAction("Router Control Center", Icons.Rounded.Dashboard, onControlCenter)
                 Spacer(Modifier.height(7.dp)); SettingsAction("Signal history", Icons.Rounded.SignalCellularAlt, onSignalHistory)
-                Spacer(Modifier.height(7.dp)); SettingsAction("Speed test", Icons.Rounded.Speed, onSpeedTest)
+                Spacer(Modifier.height(7.dp)); SettingsAction("Speed test & history", Icons.Rounded.Speed, onSpeedTest)
                 Spacer(Modifier.height(7.dp)); SettingsAction("Network tools", Icons.Rounded.SettingsEthernet, onNetworkTools)
                 Spacer(Modifier.height(7.dp)); SettingsAction("Backup & restore", Icons.Rounded.Backup, onBackupRestore)
             }
