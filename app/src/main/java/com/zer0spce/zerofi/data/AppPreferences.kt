@@ -32,6 +32,12 @@ class AppPreferences(context: Context) {
     var hotspotAutomationEnabled: Boolean
         get() = prefs.getBoolean(KEY_HOTSPOT_AUTOMATION, false)
         set(value) = prefs.edit().putBoolean(KEY_HOTSPOT_AUTOMATION, value).apply()
+    var startupRouterAutomationEnabled: Boolean
+        get() = prefs.getBoolean(KEY_STARTUP_ROUTER_AUTOMATION, false)
+        set(value) = prefs.edit().putBoolean(KEY_STARTUP_ROUTER_AUTOMATION, value).apply()
+    var routerNotificationEnabled: Boolean
+        get() = prefs.getBoolean(KEY_ROUTER_NOTIFICATION, true)
+        set(value) = prefs.edit().putBoolean(KEY_ROUTER_NOTIFICATION, value).apply()
     var immersiveMode: Boolean
         get() = prefs.getBoolean(KEY_IMMERSIVE, true)
         set(value) = prefs.edit().putBoolean(KEY_IMMERSIVE, value).apply()
@@ -94,7 +100,7 @@ class AppPreferences(context: Context) {
     }
 
     fun exportJson(): String = JSONObject().apply {
-        put("schema", 2)
+        put("schema", 3)
         put("darkMode", darkMode)
         put("oledSaver", oledSaver)
         put("dataLimitGb", dataLimitGb.toDouble())
@@ -102,6 +108,8 @@ class AppPreferences(context: Context) {
         put("keepScreenOn", keepScreenOn)
         put("autoLaunchOnBoot", autoLaunchOnBoot)
         put("hotspotAutomationEnabled", hotspotAutomationEnabled)
+        put("startupRouterAutomationEnabled", startupRouterAutomationEnabled)
+        put("routerNotificationEnabled", routerNotificationEnabled)
         put("immersiveMode", immersiveMode)
         put("dedicatedBatterySaver", dedicatedBatterySaver)
         put("hotspotSsid", hotspotSsid)
@@ -128,6 +136,8 @@ class AppPreferences(context: Context) {
         keepScreenOn = j.optBoolean("keepScreenOn", keepScreenOn)
         autoLaunchOnBoot = j.optBoolean("autoLaunchOnBoot", autoLaunchOnBoot)
         hotspotAutomationEnabled = j.optBoolean("hotspotAutomationEnabled", hotspotAutomationEnabled)
+        startupRouterAutomationEnabled = j.optBoolean("startupRouterAutomationEnabled", startupRouterAutomationEnabled)
+        routerNotificationEnabled = j.optBoolean("routerNotificationEnabled", routerNotificationEnabled)
         immersiveMode = j.optBoolean("immersiveMode", immersiveMode)
         dedicatedBatterySaver = j.optBoolean("dedicatedBatterySaver", dedicatedBatterySaver)
         hotspotSsid = j.optString("hotspotSsid", hotspotSsid)
@@ -158,6 +168,8 @@ class AppPreferences(context: Context) {
         private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
         private const val KEY_AUTO_LAUNCH = "auto_launch_on_boot"
         private const val KEY_HOTSPOT_AUTOMATION = "hotspot_automation_enabled"
+        private const val KEY_STARTUP_ROUTER_AUTOMATION = "startup_router_automation_enabled"
+        private const val KEY_ROUTER_NOTIFICATION = "router_notification_enabled"
         private const val KEY_IMMERSIVE = "immersive_mode"
         private const val KEY_DEDICATED_BATTERY_SAVER = "dedicated_battery_saver"
         private const val KEY_HOTSPOT_SSID = "hotspot_ssid"
