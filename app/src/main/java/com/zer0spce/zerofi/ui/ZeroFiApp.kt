@@ -13,17 +13,19 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.zer0spce.zerofi.MainActivity
 import com.zer0spce.zerofi.data.AppPreferences
+import com.zer0spce.zerofi.data.RouterRulesStore
 import com.zer0spce.zerofi.platform.*
 import com.zer0spce.zerofi.ui.theme.AccentTheme
 import com.zer0spce.zerofi.ui.theme.ZeroFiTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import java.util.Calendar
 import kotlin.math.roundToInt
 
 enum class AppScreen {
     DASHBOARD, HOTSPOT, DEVICES, DATA, DISPLAY, SETTINGS, DIAGNOSTICS, STANDBY,
-    CONTROL_CENTER, SIGNAL_HISTORY, SPEED_TEST, NETWORK_TOOLS, BACKUP_RESTORE,
+    CONTROL_CENTER, ROUTER_RULES, SIGNAL_HISTORY, SPEED_TEST, NETWORK_TOOLS, BACKUP_RESTORE,
 }
 
 data class ZeroFiSettingsState(
@@ -81,6 +83,7 @@ fun ZeroFiApp() {
     val context = LocalContext.current
     val activity = context as? MainActivity
     val preferences = remember { AppPreferences(context) }
+    val rulesStore = remember { RouterRulesStore(context) }
     val monitor = remember { runCatching { SystemMonitor(context) }.getOrNull() }
     val featureMonitor = remember { RouterFeatureMonitor(context) }
     val tetheringWatcher = remember { runCatching { TetheringWatcher(context) }.getOrNull() }
@@ -89,6 +92,7 @@ fun ZeroFiApp() {
     var snapshot by remember { mutableStateOf(SystemSnapshot()) }
     var featureSnapshot by remember { mutableStateOf(RouterFeatureSnapshot()) }
     var clientSnapshot by remember { mutableStateOf(HotspotClientSnapshot()) }
+    var rules by remember { mutableStateOf(rulesStore.snapshot()) }
     val signalHistory = remember { mutableStateListOf<SignalSample>() }
     var hotspotActive by remember { mutableStateOf<Boolean?>(null) }
     var detectedBand by remember { mutableStateOf<String?>(null) }
@@ -98,6 +102,7 @@ fun ZeroFiApp() {
     var settings by remember { mutableStateOf(readSettings(preferences)) }
     var autoOffIdleSince by remember { mutableStateOf<Long?>(null) }
     var autoOffIssued by remember { mutableStateOf(false) }
+    var quietTurnedOffByZeroFi by remember { mutableStateOf(false) }
     var thermalAlerted by remember { mutableStateOf(false) }
 
     val phonePermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
@@ -166,6 +171,7 @@ fun ZeroFiApp() {
         while (true) {
             featureSnapshot = runCatching { featureMonitor.snapshot() }.getOrDefault(featureSnapshot)
             clientSnapshot = withContext(Dispatchers.IO) { HotspotClientScanner.scan() }
+            rules = rulesStore.snapshot()
             delay(5_000L)
         }
     }
@@ -221,6 +227,30 @@ fun ZeroFiApp() {
             }
             delay(5_000L)
         }
+    }
+
+    LaunchedEffect(rules.quietHoursEnabled, rules.quietStartHour, rules.quietEndHour, settings.hotspotAutomationEnabled, hotspotActive) {
+        while (true) {
+            val hour = Calendar.getInstance().get(Calendar.HOUR_OF_DAY)
+            val inQuietHours = when {
+                !rules.quietHoursEnabled -> false
+                rules.quietStartHour == rules.quietEndHour -> true
+                rules.quietStartHour < rules.quietEndHour -> hour in rules.quietStartHour until rules.quietEndHour
+                else -> hour >= rules.quietStartHour || hour < rules.quietEndHour
+            }
+            val automationReady = settings.hotspotAutomationEnabled && HotspotAutomationService.isEnabled(context)
+            if (inQuietHours && hotspotActive == true && automationReady && !quietTurnedOffByZeroFi) {
+                if (HotspotAutomationService.requestEnsureHotspotOff()) quietTurnedOffByZeroFi = true
+            } else if (!inQuietHours && quietTurnedOffByZeroFi && automationReady) {
+                if (HotspotAutomationService.requestEnsureHotspotOn()) quietTurnedOffByZeroFi = false
+            }
+            delay(60_000L)
+        }
+    }
+
+    LaunchedEffect(rules.dimWhileCharging, snapshot.charging) {
+        if (rules.dimWhileCharging && snapshot.charging) activity?.setAppBrightness(0.15f)
+        else activity?.setAppBrightness(null)
     }
 
     fun toggleLock() {
@@ -300,6 +330,7 @@ fun ZeroFiApp() {
                     detectedBand = detectedBand,
                     liveSsid = liveHotspotSsid,
                     liveSecurity = liveHotspotSecurity,
+                    clientSnapshot = clientSnapshot,
                     ssid = settings.hotspotSsid,
                     password = settings.hotspotPassword,
                     security = settings.hotspotSecurity,
@@ -326,7 +357,7 @@ fun ZeroFiApp() {
                     { screen = AppScreen.DASHBOARD },
                 )
 
-                AppScreen.DATA -> DataUsageV2Screen(
+                AppScreen.DATA -> DataUsageProScreen(
                     snapshot, featureSnapshot, settings, RouterAlertNotifier.notificationsGranted(context),
                     { screen = AppScreen.DASHBOARD },
                     { preferences.dataLimitGb = it; settings = settings.copy(dataLimitGb = preferences.dataLimitGb) },
@@ -372,6 +403,7 @@ fun ZeroFiApp() {
                     { if (Build.VERSION.SDK_INT >= 33) notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) },
                     { RouterController.openAppSettings(context) },
                     { screen = AppScreen.CONTROL_CENTER },
+                    { screen = AppScreen.ROUTER_RULES },
                     { screen = AppScreen.SIGNAL_HISTORY },
                     { screen = AppScreen.SPEED_TEST },
                     { screen = AppScreen.NETWORK_TOOLS },
@@ -385,8 +417,9 @@ fun ZeroFiApp() {
                     clientSnapshot, settings, { screen = AppScreen.DASHBOARD }, { screen = it }, ::toggleHotspotPower,
                 )
 
+                AppScreen.ROUTER_RULES -> RouterRulesScreen { screen = AppScreen.SETTINGS }
                 AppScreen.SIGNAL_HISTORY -> SignalHistoryScreen(signalHistory, { screen = AppScreen.CONTROL_CENTER })
-                AppScreen.SPEED_TEST -> SpeedTestScreen { screen = AppScreen.CONTROL_CENTER }
+                AppScreen.SPEED_TEST -> SpeedTestHistoryScreen { screen = AppScreen.CONTROL_CENTER }
                 AppScreen.NETWORK_TOOLS -> NetworkToolsScreen(
                     featureSnapshot,
                     { screen = AppScreen.CONTROL_CENTER },
