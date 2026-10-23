@@ -21,6 +21,9 @@ import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.text.font.FontWeight
+import androidx.compose.ui.text.input.PasswordVisualTransformation
+import androidx.compose.ui.text.input.VisualTransformation
+import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -34,15 +37,69 @@ fun HotspotScreen(active:Boolean?, detectedBand:String?, ssid:String, password:S
     var localPassword by remember(password){ mutableStateOf(password) }
     var localSecurity by remember(security){ mutableStateOf(security) }
     var localBand by remember(preferredBand){ mutableStateOf(preferredBand) }
-    DetailPage("Wi-Fi", "Hotspot & connection card", onBack) {
-        ResponsiveCards(firstWeight=1f, secondWeight=1.4f,
-            first={ SectionLabel("HOTSPOT STATUS"); Spacer(Modifier.height(10.dp)); BigStatus(when(active){true->"Hotspot is on";false->"Hotspot is off";null->"System managed"}, detectedBand ?: "Status depends on Android/OEM", active==true); Spacer(Modifier.height(12.dp)); InfoText("ZeroFi uses the phone's real tethering controls. Direct hotspot changes remain OEM dependent."); Spacer(Modifier.height(14.dp)); ActionButton("Open Android Hotspot Controls", Icons.Rounded.OpenInNew, onOpenSystemHotspot) },
-            second={ SectionLabel("WI-FI CONNECTION"); Spacer(Modifier.height(8.dp)); OutlinedTextField(localSsid,{localSsid=it.take(32)},label={Text("Wi-Fi name (SSID)")},singleLine=true,modifier=Modifier.fillMaxWidth()); Spacer(Modifier.height(7.dp)); OutlinedTextField(localPassword,{localPassword=it.take(63)},label={Text("Password")},singleLine=true,modifier=Modifier.fillMaxWidth()); Spacer(Modifier.height(9.dp)); SmallLabel("Security"); ChoiceRow(listOf("WPA","nopass"),localSecurity){localSecurity=it}; Spacer(Modifier.height(8.dp)); SmallLabel("Preferred band"); ChoiceRow(listOf("System","2.4 GHz","5 GHz"),localBand){localBand=it}; Spacer(Modifier.height(14.dp)); QrConnectionCard(localSsid,localPassword,localSecurity); Spacer(Modifier.height(14.dp)); ActionButton("Save Connection Card",Icons.Rounded.Save){onSaveProfile(localSsid,localPassword,localSecurity,localBand)} }
-        )
+    DetailPage("Wi-Fi", "Connect to this pocket Wi-Fi", onBack) {
+        BoxWithConstraints(Modifier.fillMaxSize()) {
+            val portrait = maxHeight > maxWidth
+            if (portrait) {
+                Column(Modifier.fillMaxSize().verticalScroll(rememberScrollState()), horizontalAlignment=Alignment.CenterHorizontally) {
+                    WifiConnectionHero(active, detectedBand, localSsid, localPassword, localSecurity)
+                    Spacer(Modifier.height(12.dp))
+                    WifiSettingsCard(localSsid,localPassword,localSecurity,localBand,{localSsid=it.take(32)},{localPassword=it.take(63)},{localSecurity=it},{localBand=it},onOpenSystemHotspot){onSaveProfile(localSsid,localPassword,localSecurity,localBand)}
+                    Spacer(Modifier.height(6.dp))
+                }
+            } else {
+                Row(Modifier.fillMaxSize(), horizontalArrangement=Arrangement.spacedBy(12.dp)) {
+                    SurfaceCard(Modifier.weight(.9f).fillMaxHeight()) { WifiConnectionHero(active, detectedBand, localSsid, localPassword, localSecurity, false) }
+                    SurfaceCard(Modifier.weight(1.1f).fillMaxHeight().verticalScroll(rememberScrollState())) { WifiSettingsContent(localSsid,localPassword,localSecurity,localBand,{localSsid=it.take(32)},{localPassword=it.take(63)},{localSecurity=it},{localBand=it},onOpenSystemHotspot){onSaveProfile(localSsid,localPassword,localSecurity,localBand)} }
+                }
+            }
+        }
     }
 }
 
-@Composable private fun QrConnectionCard(ssid:String,password:String,security:String){ Column(Modifier.fillMaxWidth(),horizontalAlignment=Alignment.CenterHorizontally){ val bitmap=remember(ssid,password,security){generateQrBitmap(wifiQrPayload(ssid,password,security),320)}; if(bitmap!=null) Image(bitmap.asImageBitmap(),"Wi-Fi QR code",Modifier.size(142.dp).background(Color.White,RoundedCornerShape(12.dp)).padding(7.dp)); Spacer(Modifier.height(5.dp)); Text("Scan to connect",fontSize=9.sp,color=MaterialTheme.colorScheme.onSurfaceVariant) } }
+@Composable private fun WifiConnectionHero(active:Boolean?, detectedBand:String?, ssid:String, password:String, security:String, card:Boolean=true) {
+    val content:@Composable ColumnScope.()->Unit = {
+        SectionLabel("WI-FI CONNECTION")
+        Spacer(Modifier.height(7.dp))
+        Text(ssid.ifBlank { "Set Wi-Fi name below" }, color=MaterialTheme.colorScheme.onSurface, fontSize=22.sp, fontWeight=FontWeight.ExtraBold, textAlign=TextAlign.Center, modifier=Modifier.fillMaxWidth(), maxLines=1, overflow=TextOverflow.Ellipsis)
+        Text(when(active){true->"Hotspot is ON";false->"Hotspot is OFF";null->"Hotspot status is system managed"}, color=if(active==true) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant, fontSize=10.sp, fontWeight=FontWeight.SemiBold, textAlign=TextAlign.Center, modifier=Modifier.fillMaxWidth())
+        Spacer(Modifier.height(12.dp))
+        QrConnectionCard(ssid,password,security, if(card) 232 else 210)
+        Spacer(Modifier.height(10.dp))
+        Text("Scan this QR code from another device to join the Wi-Fi network shown above.", color=MaterialTheme.colorScheme.onSurfaceVariant, fontSize=9.sp, lineHeight=13.sp, textAlign=TextAlign.Center, modifier=Modifier.fillMaxWidth())
+        Spacer(Modifier.height(7.dp))
+        FeatureLine("Band",detectedBand ?: "System")
+        FeatureLine("Security",if(password.isBlank() || security.equals("nopass",true)) "Open" else "WPA/WPA2/WPA3")
+    }
+    if(card) SurfaceCard(Modifier.fillMaxWidth(),content) else Column(Modifier.fillMaxWidth(), horizontalAlignment=Alignment.CenterHorizontally, content=content)
+}
+
+@Composable private fun WifiSettingsCard(ssid:String,password:String,security:String,band:String,onSsid:(String)->Unit,onPassword:(String)->Unit,onSecurity:(String)->Unit,onBand:(String)->Unit,onOpenSystemHotspot:()->Unit,onSave:()->Unit){
+    SurfaceCard(Modifier.fillMaxWidth()){ WifiSettingsContent(ssid,password,security,band,onSsid,onPassword,onSecurity,onBand,onOpenSystemHotspot,onSave) }
+}
+
+@Composable private fun WifiSettingsContent(ssid:String,password:String,security:String,band:String,onSsid:(String)->Unit,onPassword:(String)->Unit,onSecurity:(String)->Unit,onBand:(String)->Unit,onOpenSystemHotspot:()->Unit,onSave:()->Unit){
+    var showPassword by remember { mutableStateOf(false) }
+    SectionLabel("CONNECTION CARD SETTINGS"); Spacer(Modifier.height(8.dp))
+    OutlinedTextField(ssid,onSsid,label={Text("Wi-Fi name (SSID)")},singleLine=true,modifier=Modifier.fillMaxWidth())
+    Spacer(Modifier.height(7.dp))
+    OutlinedTextField(password,onPassword,label={Text("Wi-Fi password")},singleLine=true,visualTransformation=if(showPassword) VisualTransformation.None else PasswordVisualTransformation(),trailingIcon={IconButton(onClick={showPassword=!showPassword}){Icon(if(showPassword) Icons.Rounded.VisibilityOff else Icons.Rounded.Visibility,if(showPassword) "Hide password" else "Show password")}},modifier=Modifier.fillMaxWidth())
+    Spacer(Modifier.height(9.dp)); SmallLabel("QR security"); ChoiceRow(listOf("WPA","nopass"),security,onSecurity)
+    Spacer(Modifier.height(8.dp)); SmallLabel("Preferred band"); ChoiceRow(listOf("System","2.4 GHz","5 GHz"),band,onBand)
+    Spacer(Modifier.height(12.dp)); InfoText("Important: the QR code must match the hotspot name and password configured in Android. Saving here updates ZeroFi's connection card; Android may restrict apps from changing the real hotspot credentials.")
+    Spacer(Modifier.height(12.dp)); ActionButton("Save & Refresh QR",Icons.Rounded.Save,onSave)
+    Spacer(Modifier.height(8.dp)); ActionButton("Open Android Hotspot Settings",Icons.Rounded.OpenInNew,onOpenSystemHotspot)
+}
+
+@Composable private fun QrConnectionCard(ssid:String,password:String,security:String,size:Int){
+    Column(Modifier.fillMaxWidth(),horizontalAlignment=Alignment.CenterHorizontally){
+        val valid = ssid.isNotBlank() && (password.isBlank() || security.equals("nopass",true) || password.length>=8)
+        val bitmap=remember(ssid,password,security,size){ if(valid) generateQrBitmap(wifiQrPayload(ssid,password,security),size) else null }
+        if(bitmap!=null) Image(bitmap.asImageBitmap(),"Wi-Fi QR code",Modifier.size(size.dp).background(Color.White,RoundedCornerShape(18.dp)).padding(10.dp))
+        else Box(Modifier.size(size.dp).background(MaterialTheme.colorScheme.surfaceVariant,RoundedCornerShape(18.dp)),contentAlignment=Alignment.Center){Text(if(ssid.isBlank()) "Enter the hotspot Wi-Fi name" else "Password must be at least 8 characters for secured Wi-Fi",color=MaterialTheme.colorScheme.onSurfaceVariant,fontSize=11.sp,textAlign=TextAlign.Center,modifier=Modifier.padding(18.dp))}
+        Spacer(Modifier.height(7.dp)); Text(if(valid) "SCAN TO CONNECT" else "QR NOT READY",fontSize=10.sp,fontWeight=FontWeight.Bold,color=if(valid) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
 
 @Composable fun DevicesScreen(hotspotActive:Boolean?,onBack:()->Unit,onOpenHotspotSettings:()->Unit){ DetailPage("Connected devices","Hotspot client visibility",onBack){ ResponsiveCards(first={SectionLabel("CLIENT STATUS");Spacer(Modifier.height(12.dp));BigStatus(when(hotspotActive){true->"Hotspot active";false->"Hotspot inactive";null->"Client list restricted"},"ZeroFi only displays client data Android actually exposes.",hotspotActive==true);Spacer(Modifier.height(12.dp));InfoText("Many Android manufacturers keep the hotspot client table behind system permissions. The system hotspot page remains the fallback source of truth.");Spacer(Modifier.height(14.dp));ActionButton("Open Hotspot Device List",Icons.Rounded.Devices,onOpenHotspotSettings)},second={SectionLabel("CLIENT CAPABILITIES");Spacer(Modifier.height(12.dp));FeatureLine("Device count","OEM dependent");FeatureLine("Names / IP / MAC","OEM dependent");FeatureLine("Block / kick","Only when supported");FeatureLine("Android 16+","Richer tethering visibility");Spacer(Modifier.height(12.dp));InfoText("ZeroFi will never fabricate a client count or show a block button that cannot work.")}) } }
 
