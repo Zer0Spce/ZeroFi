@@ -36,6 +36,10 @@ class AppPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_IMMERSIVE, true)
         set(value) = prefs.edit().putBoolean(KEY_IMMERSIVE, value).apply()
 
+    var dedicatedBatterySaver: Boolean
+        get() = prefs.getBoolean(KEY_DEDICATED_BATTERY_SAVER, false)
+        set(value) = prefs.edit().putBoolean(KEY_DEDICATED_BATTERY_SAVER, value).apply()
+
     var hotspotSsid: String
         get() = prefs.getString(KEY_HOTSPOT_SSID, "ZeroFi") ?: "ZeroFi"
         set(value) = prefs.edit().putString(KEY_HOTSPOT_SSID, value.trim().take(32)).apply()
@@ -61,6 +65,7 @@ class AppPreferences(context: Context) {
         private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
         private const val KEY_AUTO_LAUNCH = "auto_launch_on_boot"
         private const val KEY_IMMERSIVE = "immersive_mode"
+        private const val KEY_DEDICATED_BATTERY_SAVER = "dedicated_battery_saver"
         private const val KEY_HOTSPOT_SSID = "hotspot_ssid"
         private const val KEY_HOTSPOT_PASSWORD = "hotspot_password"
         private const val KEY_HOTSPOT_SECURITY = "hotspot_security"
