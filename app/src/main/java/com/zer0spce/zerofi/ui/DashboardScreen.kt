@@ -13,7 +13,6 @@ import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
-import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -21,15 +20,16 @@ import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
+import androidx.compose.foundation.layout.weight
+import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.rounded.BatteryFull
 import androidx.compose.material.icons.rounded.Brightness6
-import androidx.compose.material.icons.rounded.DataUsage
+import androidx.compose.material.icons.rounded.DarkMode
 import androidx.compose.material.icons.rounded.Devices
-import androidx.compose.material.icons.rounded.ExpandMore
-import androidx.compose.material.icons.rounded.LightMode
 import androidx.compose.material.icons.rounded.PowerSettingsNew
 import androidx.compose.material.icons.rounded.Settings
 import androidx.compose.material.icons.rounded.SignalCellularAlt
@@ -85,14 +85,17 @@ fun DashboardScreen(
     val accent = MaterialTheme.colorScheme.primary
     val background = when {
         oledSaver -> Brush.linearGradient(listOf(Color.Black, Color.Black))
-        darkMode -> Brush.radialGradient(
-            colors = listOf(accent.copy(alpha = 0.08f), MaterialTheme.colorScheme.background),
-            radius = 1500f,
-        )
-        else -> Brush.linearGradient(
+        darkMode -> Brush.verticalGradient(
             listOf(
                 MaterialTheme.colorScheme.background,
                 accent.copy(alpha = 0.035f),
+                MaterialTheme.colorScheme.background,
+            ),
+        )
+        else -> Brush.verticalGradient(
+            listOf(
+                MaterialTheme.colorScheme.background,
+                MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.35f),
                 MaterialTheme.colorScheme.background,
             ),
         )
@@ -116,61 +119,75 @@ fun DashboardScreen(
             .fillMaxSize()
             .background(background),
     ) {
-        val compact = maxHeight < 430.dp || maxWidth < 800.dp
-        val outerPadding = if (compact) 10.dp else 18.dp
-        val gap = if (compact) 8.dp else 14.dp
+        val portrait = maxHeight > maxWidth
         val monthlyLimitBytes = (dataLimitGb * GIB).toLong().coerceAtLeast(1L)
         val monthProgress = snapshot.monthBytes?.let { (it.toFloat() / monthlyLimitBytes).coerceIn(0f, 1f) }
         val threeDayTarget = (monthlyLimitBytes * 3L / 30L).coerceAtLeast(1L)
         val threeDayProgress = snapshot.threeDayBytes?.let { (it.toFloat() / threeDayTarget).coerceIn(0f, 1f) }
-        val signalProgress = snapshot.signalLevel?.let { (it.coerceIn(0, 4) / 4f).coerceIn(0f, 1f) }
+        val signalProgress = snapshot.signalLevel?.let { it.coerceIn(0, 4) / 4f }
 
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(outerPadding)
-                .offset(x = driftX, y = driftY),
+                .offset(x = driftX, y = driftY)
+                .padding(horizontal = if (portrait) 14.dp else 18.dp, vertical = 12.dp),
         ) {
-            ScrHeader(
+            CleanHeader(
                 snapshot = snapshot,
                 accentTheme = accentTheme,
                 darkMode = darkMode,
-                compact = compact,
+                portrait = portrait,
                 onAccentThemeChange = onAccentThemeChange,
                 onDarkModeChange = onDarkModeChange,
+                onSettings = { onNavigate(AppScreen.SETTINGS) },
             )
 
-            Spacer(Modifier.height(gap))
+            Spacer(Modifier.height(10.dp))
 
-            ScrMainPanel(
-                modifier = Modifier.weight(1f).fillMaxWidth(),
-                snapshot = snapshot,
-                hotspotActive = hotspotActive,
-                hotspotBand = hotspotBand,
-                monthlyLimitBytes = monthlyLimitBytes,
-                monthProgress = monthProgress,
-                threeDayProgress = threeDayProgress,
-                signalProgress = signalProgress,
-                compact = compact,
-                oledSaver = oledSaver,
-                onRequestPhonePermission = onRequestPhonePermission,
-                onRequestUsageAccess = onRequestUsageAccess,
-                onNavigate = onNavigate,
-            )
+            if (portrait) {
+                PortraitDashboard(
+                    snapshot = snapshot,
+                    hotspotActive = hotspotActive,
+                    hotspotBand = hotspotBand,
+                    monthlyLimitBytes = monthlyLimitBytes,
+                    monthProgress = monthProgress,
+                    threeDayProgress = threeDayProgress,
+                    signalProgress = signalProgress,
+                    oledSaver = oledSaver,
+                    onNavigate = onNavigate,
+                    onRequestPhonePermission = onRequestPhonePermission,
+                    onRequestUsageAccess = onRequestUsageAccess,
+                )
+            } else {
+                LandscapeDashboard(
+                    snapshot = snapshot,
+                    hotspotActive = hotspotActive,
+                    hotspotBand = hotspotBand,
+                    monthlyLimitBytes = monthlyLimitBytes,
+                    monthProgress = monthProgress,
+                    threeDayProgress = threeDayProgress,
+                    signalProgress = signalProgress,
+                    oledSaver = oledSaver,
+                    onNavigate = onNavigate,
+                    onRequestPhonePermission = onRequestPhonePermission,
+                    onRequestUsageAccess = onRequestUsageAccess,
+                )
+            }
         }
     }
 }
 
 @Composable
-private fun ScrHeader(
+private fun CleanHeader(
     snapshot: SystemSnapshot,
     accentTheme: AccentTheme,
     darkMode: Boolean,
-    compact: Boolean,
+    portrait: Boolean,
     onAccentThemeChange: (AccentTheme) -> Unit,
     onDarkModeChange: (Boolean) -> Unit,
+    onSettings: () -> Unit,
 ) {
-    var menuOpen by remember { mutableStateOf(false) }
+    var themeMenuOpen by remember { mutableStateOf(false) }
 
     Row(
         modifier = Modifier.fillMaxWidth(),
@@ -180,13 +197,14 @@ private fun ScrHeader(
             Text(
                 text = "ZeroFi",
                 color = MaterialTheme.colorScheme.onBackground,
-                fontSize = if (compact) 24.sp else 31.sp,
+                fontSize = if (portrait) 27.sp else 26.sp,
                 fontWeight = FontWeight.ExtraBold,
+                letterSpacing = (-0.5).sp,
             )
             Text(
-                text = "5G MOBILE WI-FI",
+                text = "MOBILE WI-FI",
                 color = MaterialTheme.colorScheme.primary,
-                fontSize = if (compact) 8.sp else 10.sp,
+                fontSize = 8.sp,
                 fontWeight = FontWeight.Bold,
                 letterSpacing = 1.6.sp,
             )
@@ -194,64 +212,64 @@ private fun ScrHeader(
 
         Spacer(Modifier.weight(1f))
 
-        HeaderChip(
-            icon = Icons.Rounded.SignalCellularAlt,
-            text = if (snapshot.validatedInternet) "Online" else "Offline",
-            compact = compact,
-        )
-        Spacer(Modifier.width(6.dp))
-        HeaderChip(
+        if (!portrait) {
+            StatusPill(
+                icon = Icons.Rounded.SignalCellularAlt,
+                text = if (snapshot.validatedInternet) "Online" else "Offline",
+            )
+            Spacer(Modifier.width(6.dp))
+        }
+
+        StatusPill(
             icon = Icons.Rounded.BatteryFull,
             text = buildString {
                 append(snapshot.batteryPercent?.let { "$it%" } ?: "—")
-                if (snapshot.batteryTimeRemainingText.isNotBlank()) {
+                if (!portrait && snapshot.batteryTimeRemainingText.isNotBlank()) {
                     append(" · ")
                     append(snapshot.batteryTimeRemainingText)
                 }
             },
-            compact = compact,
         )
-        Spacer(Modifier.width(8.dp))
+        Spacer(Modifier.width(6.dp))
 
         Box {
-            HeaderControl(
-                text = accentTheme.label,
-                trailing = Icons.Rounded.ExpandMore,
-                compact = compact,
-                onClick = { menuOpen = true },
+            CircleHeaderButton(
+                icon = Icons.Rounded.DarkMode,
+                tint = accentTheme.accent,
+                onClick = { themeMenuOpen = true },
             )
             DropdownMenu(
-                expanded = menuOpen,
-                onDismissRequest = { menuOpen = false },
+                expanded = themeMenuOpen,
+                onDismissRequest = { themeMenuOpen = false },
             ) {
                 AccentTheme.entries.forEach { theme ->
                     DropdownMenuItem(
                         text = { Text(theme.label) },
                         leadingIcon = {
-                            Box(Modifier.size(12.dp).background(theme.accent, CircleShape))
+                            Box(Modifier.size(11.dp).background(theme.accent, CircleShape))
                         },
                         onClick = {
                             onAccentThemeChange(theme)
-                            menuOpen = false
+                            themeMenuOpen = false
                         },
                     )
                 }
+                DropdownMenuItem(
+                    text = { Text(if (darkMode) "Use light mode" else "Use dark mode") },
+                    onClick = {
+                        onDarkModeChange(!darkMode)
+                        themeMenuOpen = false
+                    },
+                )
             }
         }
-
-        Spacer(Modifier.width(6.dp))
-        HeaderControl(
-            text = if (darkMode) "Dark" else "Light",
-            trailing = Icons.Rounded.LightMode,
-            compact = compact,
-            onClick = { onDarkModeChange(!darkMode) },
-        )
+        Spacer(Modifier.width(5.dp))
+        CircleHeaderButton(Icons.Rounded.Settings, MaterialTheme.colorScheme.onSurfaceVariant, onSettings)
     }
 }
 
 @Composable
-private fun ScrMainPanel(
-    modifier: Modifier,
+private fun PortraitDashboard(
     snapshot: SystemSnapshot,
     hotspotActive: Boolean?,
     hotspotBand: String,
@@ -259,244 +277,358 @@ private fun ScrMainPanel(
     monthProgress: Float?,
     threeDayProgress: Float?,
     signalProgress: Float?,
-    compact: Boolean,
     oledSaver: Boolean,
+    onNavigate: (AppScreen) -> Unit,
     onRequestPhonePermission: () -> Unit,
     onRequestUsageAccess: () -> Unit,
-    onNavigate: (AppScreen) -> Unit,
 ) {
-    val shape = RoundedCornerShape(if (compact) 22.dp else 30.dp)
-    val accent = MaterialTheme.colorScheme.primary
-
     Column(
-        modifier = modifier
-            .shadow(
-                elevation = if (oledSaver) 0.dp else 9.dp,
-                shape = shape,
-                ambientColor = accent.copy(alpha = 0.07f),
-                spotColor = accent.copy(alpha = 0.10f),
+        modifier = Modifier
+            .fillMaxSize()
+            .verticalScroll(rememberScrollState()),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        RouterPanel(oledSaver = oledSaver) {
+            SignalHero(
+                snapshot = snapshot,
+                progress = signalProgress,
+                size = 178.dp,
+                onClick = if (snapshot.phonePermissionGranted) null else onRequestPhonePermission,
             )
-            .background(MaterialTheme.colorScheme.surface, shape)
-            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.45f), shape)
-            .padding(horizontal = if (compact) 12.dp else 22.dp, vertical = if (compact) 10.dp else 18.dp),
+
+            Spacer(Modifier.height(12.dp))
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                DataStatus(
+                    modifier = Modifier.weight(1f),
+                    label = "This month",
+                    value = snapshot.monthBytes?.let(::formatDashboardBytes) ?: "—",
+                    detail = if (snapshot.usageAccessGranted) {
+                        "of ${formatDashboardBytes(monthlyLimitBytes)}"
+                    } else {
+                        "Tap to allow usage access"
+                    },
+                    progress = monthProgress,
+                    size = 108.dp,
+                    onClick = if (snapshot.usageAccessGranted) null else onRequestUsageAccess,
+                )
+                DataStatus(
+                    modifier = Modifier.weight(1f),
+                    label = "Last 3 days",
+                    value = snapshot.threeDayBytes?.let(::formatDashboardBytes) ?: "—",
+                    detail = if (snapshot.usageAccessGranted) "Mobile data" else "Tap to allow usage access",
+                    progress = threeDayProgress,
+                    size = 108.dp,
+                    onClick = if (snapshot.usageAccessGranted) null else onRequestUsageAccess,
+                )
+            }
+
+            CleanDivider()
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                UtilityTile(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Rounded.Wifi,
+                    label = "Wi-Fi",
+                    value = when (hotspotActive) {
+                        true -> "Hotspot on"
+                        false -> "Hotspot off"
+                        null -> "Hotspot"
+                    },
+                    onClick = { onNavigate(AppScreen.HOTSPOT) },
+                )
+                UtilityTile(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Rounded.SwapVert,
+                    label = "Network",
+                    value = hotspotBand.ifBlank { "System" },
+                    onClick = { onNavigate(AppScreen.DATA) },
+                )
+            }
+            Spacer(Modifier.height(9.dp))
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(9.dp),
+            ) {
+                UtilityTile(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Rounded.PowerSettingsNew,
+                    label = "Power saving",
+                    value = "Battery controls",
+                    onClick = { onNavigate(AppScreen.SETTINGS) },
+                )
+                UtilityTile(
+                    modifier = Modifier.weight(1f),
+                    icon = Icons.Rounded.Brightness6,
+                    label = "Display",
+                    value = "Screen controls",
+                    onClick = { onNavigate(AppScreen.DISPLAY) },
+                )
+            }
+
+            CleanDivider()
+
+            DeviceFooter(
+                snapshot = snapshot,
+                hotspotActive = hotspotActive,
+                onClick = { onNavigate(AppScreen.DEVICES) },
+            )
+        }
+
+        Spacer(Modifier.height(10.dp))
+    }
+}
+
+@Composable
+private fun LandscapeDashboard(
+    snapshot: SystemSnapshot,
+    hotspotActive: Boolean?,
+    hotspotBand: String,
+    monthlyLimitBytes: Long,
+    monthProgress: Float?,
+    threeDayProgress: Float?,
+    signalProgress: Float?,
+    oledSaver: Boolean,
+    onNavigate: (AppScreen) -> Unit,
+    onRequestPhonePermission: () -> Unit,
+    onRequestUsageAccess: () -> Unit,
+) {
+    RouterPanel(
+        modifier = Modifier.weight(1f).fillMaxWidth(),
+        oledSaver = oledSaver,
     ) {
         Row(
             modifier = Modifier.weight(1f).fillMaxWidth(),
-            horizontalArrangement = Arrangement.SpaceEvenly,
             verticalAlignment = Alignment.CenterVertically,
+            horizontalArrangement = Arrangement.spacedBy(18.dp),
         ) {
-            ScrCircleStatus(
-                modifier = Modifier.weight(1f),
-                title = "This month",
-                main = snapshot.monthBytes?.let(::formatDashboardBytes) ?: "—",
-                secondary = if (snapshot.usageAccessGranted) {
-                    "of ${formatDashboardBytes(monthlyLimitBytes)}"
-                } else {
-                    "Usage Access needed"
-                },
-                progress = monthProgress,
-                compact = compact,
-                onClick = if (snapshot.usageAccessGranted) null else onRequestUsageAccess,
-            )
-
-            ScrCircleStatus(
-                modifier = Modifier.weight(1f),
-                title = "Last 3 days",
-                main = snapshot.threeDayBytes?.let(::formatDashboardBytes) ?: "—",
-                secondary = if (snapshot.usageAccessGranted) "Mobile data" else "Usage Access needed",
-                progress = threeDayProgress,
-                compact = compact,
-                onClick = if (snapshot.usageAccessGranted) null else onRequestUsageAccess,
-            )
-
-            ScrCircleStatus(
-                modifier = Modifier.weight(1f),
-                title = "Mobile network",
-                main = snapshot.networkType,
-                secondary = when {
-                    !snapshot.phonePermissionGranted -> "Phone permission needed"
-                    snapshot.signalDbm != null -> "${snapshot.signalDbm} dBm"
-                    snapshot.signalLevel != null -> "Signal ${snapshot.signalLevel}/4"
-                    else -> snapshot.carrierName
-                },
-                progress = signalProgress,
-                compact = compact,
-                centerIcon = Icons.Rounded.SignalCellularAlt,
-                onClick = if (snapshot.phonePermissionGranted) null else onRequestPhonePermission,
-            )
-        }
-
-        ScrDivider()
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(if (compact) 7.dp else 12.dp),
-        ) {
-            ScrQuickAction(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.Wifi,
-                title = "Wi-Fi",
-                subtitle = when (hotspotActive) {
-                    true -> "Hotspot ON"
-                    false -> "Hotspot OFF"
-                    null -> "Hotspot"
-                },
-                compact = compact,
-                onClick = { onNavigate(AppScreen.HOTSPOT) },
-            )
-            ScrQuickAction(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.SwapVert,
-                title = "Communication",
-                subtitle = hotspotBand.ifBlank { "System" },
-                compact = compact,
-                onClick = { onNavigate(AppScreen.DATA) },
-            )
-            ScrQuickAction(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.PowerSettingsNew,
-                title = "Power saving",
-                subtitle = "Battery controls",
-                compact = compact,
-                onClick = { onNavigate(AppScreen.SETTINGS) },
-            )
-            ScrQuickAction(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.Brightness6,
-                title = "Display",
-                subtitle = "Screen controls",
-                compact = compact,
-                onClick = { onNavigate(AppScreen.DISPLAY) },
-            )
-            ScrQuickAction(
-                modifier = Modifier.weight(1f),
-                icon = Icons.Rounded.Settings,
-                title = "Settings",
-                subtitle = "Router mode",
-                compact = compact,
-                onClick = { onNavigate(AppScreen.SETTINGS) },
-            )
-        }
-
-        ScrDivider()
-
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            verticalAlignment = Alignment.CenterVertically,
-        ) {
-            Row(
-                modifier = Modifier
-                    .weight(1f)
-                    .clickable { onNavigate(AppScreen.DEVICES) }
-                    .padding(vertical = if (compact) 5.dp else 8.dp),
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
+            Column(
+                modifier = Modifier.weight(0.9f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.spacedBy(8.dp),
             ) {
-                Box(
-                    modifier = Modifier
-                        .size(if (compact) 34.dp else 42.dp)
-                        .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f), CircleShape),
-                    contentAlignment = Alignment.Center,
-                ) {
-                    Icon(
-                        imageVector = Icons.Rounded.Devices,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(if (compact) 18.dp else 22.dp),
-                    )
-                }
-                Column {
-                    Text(
-                        text = "Connected devices",
-                        color = MaterialTheme.colorScheme.onSurface,
-                        fontSize = if (compact) 10.sp else 12.sp,
-                        fontWeight = FontWeight.Bold,
-                    )
-                    Text(
-                        text = "Tap to view hotspot clients",
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                        fontSize = if (compact) 8.sp else 10.sp,
-                    )
-                }
-            }
-
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.spacedBy(10.dp),
-            ) {
-                ThroughputBadge(Icons.Rounded.DataUsage, snapshot.downloadBytesPerSecond, "↓", compact)
-                ThroughputBadge(Icons.Rounded.DataUsage, snapshot.uploadBytesPerSecond, "↑", compact)
-                Text(
-                    text = "1 / 1",
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = if (compact) 9.sp else 10.sp,
-                    fontWeight = FontWeight.Medium,
+                DataStatus(
+                    modifier = Modifier.fillMaxWidth(),
+                    label = "This month",
+                    value = snapshot.monthBytes?.let(::formatDashboardBytes) ?: "—",
+                    detail = if (snapshot.usageAccessGranted) {
+                        "of ${formatDashboardBytes(monthlyLimitBytes)}"
+                    } else {
+                        "Usage access needed"
+                    },
+                    progress = monthProgress,
+                    size = 104.dp,
+                    onClick = if (snapshot.usageAccessGranted) null else onRequestUsageAccess,
+                )
+                DataStatus(
+                    modifier = Modifier.fillMaxWidth(),
+                    label = "Last 3 days",
+                    value = snapshot.threeDayBytes?.let(::formatDashboardBytes) ?: "—",
+                    detail = if (snapshot.usageAccessGranted) "Mobile data" else "Usage access needed",
+                    progress = threeDayProgress,
+                    size = 104.dp,
+                    onClick = if (snapshot.usageAccessGranted) null else onRequestUsageAccess,
                 )
             }
+
+            Box(
+                modifier = Modifier.weight(1.15f),
+                contentAlignment = Alignment.Center,
+            ) {
+                SignalHero(
+                    snapshot = snapshot,
+                    progress = signalProgress,
+                    size = 170.dp,
+                    onClick = if (snapshot.phonePermissionGranted) null else onRequestPhonePermission,
+                )
+            }
+
+            Column(
+                modifier = Modifier.weight(1.2f),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    UtilityTile(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.Wifi,
+                        label = "Wi-Fi",
+                        value = when (hotspotActive) {
+                            true -> "Hotspot on"
+                            false -> "Hotspot off"
+                            null -> "Hotspot"
+                        },
+                        onClick = { onNavigate(AppScreen.HOTSPOT) },
+                    )
+                    UtilityTile(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.SwapVert,
+                        label = "Network",
+                        value = hotspotBand.ifBlank { "System" },
+                        onClick = { onNavigate(AppScreen.DATA) },
+                    )
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
+                    UtilityTile(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.PowerSettingsNew,
+                        label = "Power saving",
+                        value = "Battery controls",
+                        onClick = { onNavigate(AppScreen.SETTINGS) },
+                    )
+                    UtilityTile(
+                        modifier = Modifier.weight(1f),
+                        icon = Icons.Rounded.Brightness6,
+                        label = "Display",
+                        value = "Screen controls",
+                        onClick = { onNavigate(AppScreen.DISPLAY) },
+                    )
+                }
+            }
+        }
+
+        CleanDivider()
+
+        DeviceFooter(
+            snapshot = snapshot,
+            hotspotActive = hotspotActive,
+            onClick = { onNavigate(AppScreen.DEVICES) },
+        )
+    }
+}
+
+@Composable
+private fun RouterPanel(
+    modifier: Modifier = Modifier,
+    oledSaver: Boolean,
+    content: @Composable Column.() -> Unit,
+) {
+    val shape = RoundedCornerShape(28.dp)
+    val accent = MaterialTheme.colorScheme.primary
+    Column(
+        modifier = modifier
+            .shadow(
+                elevation = if (oledSaver) 0.dp else 5.dp,
+                shape = shape,
+                ambientColor = accent.copy(alpha = 0.035f),
+                spotColor = Color.Black.copy(alpha = 0.06f),
+            )
+            .background(MaterialTheme.colorScheme.surface, shape)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.22f), shape)
+            .padding(16.dp),
+        content = content,
+    )
+}
+
+@Composable
+private fun SignalHero(
+    snapshot: SystemSnapshot,
+    progress: Float?,
+    size: Dp,
+    onClick: (() -> Unit)?,
+) {
+    val modifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
+    Column(
+        modifier = modifier,
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        Text(
+            text = "Mobile network",
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            fontSize = 11.sp,
+            fontWeight = FontWeight.Medium,
+        )
+        Spacer(Modifier.height(6.dp))
+        Box(modifier = Modifier.size(size), contentAlignment = Alignment.Center) {
+            RingMeter(progress = progress, size = size, strokeFraction = 0.052f)
+            Column(horizontalAlignment = Alignment.CenterHorizontally) {
+                Icon(
+                    imageVector = Icons.Rounded.SignalCellularAlt,
+                    contentDescription = null,
+                    tint = MaterialTheme.colorScheme.primary,
+                    modifier = Modifier.size(23.dp),
+                )
+                Spacer(Modifier.height(3.dp))
+                Text(
+                    text = snapshot.networkType.ifBlank { "—" },
+                    color = MaterialTheme.colorScheme.onSurface,
+                    fontSize = 23.sp,
+                    fontWeight = FontWeight.ExtraBold,
+                )
+                Text(
+                    text = when {
+                        !snapshot.phonePermissionGranted -> "Tap to allow phone status"
+                        snapshot.signalDbm != null -> "${snapshot.signalDbm} dBm"
+                        snapshot.signalLevel != null -> "Signal ${snapshot.signalLevel}/4"
+                        snapshot.carrierName.isNotBlank() -> snapshot.carrierName
+                        else -> "Signal unavailable"
+                    },
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    fontSize = 9.sp,
+                    textAlign = TextAlign.Center,
+                    maxLines = 2,
+                )
+            }
+        }
+        if (snapshot.carrierName.isNotBlank() && snapshot.phonePermissionGranted) {
+            Spacer(Modifier.height(3.dp))
+            Text(
+                text = snapshot.carrierName,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 9.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
         }
     }
 }
 
 @Composable
-private fun ScrCircleStatus(
+private fun DataStatus(
     modifier: Modifier,
-    title: String,
-    main: String,
-    secondary: String,
+    label: String,
+    value: String,
+    detail: String,
     progress: Float?,
-    compact: Boolean,
-    centerIcon: ImageVector? = null,
-    onClick: (() -> Unit)? = null,
+    size: Dp,
+    onClick: (() -> Unit)?,
 ) {
-    val size = if (compact) 116.dp else 154.dp
-    val clickModifier = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
-
+    val click = if (onClick != null) Modifier.clickable(onClick = onClick) else Modifier
     Column(
-        modifier = modifier.then(clickModifier),
+        modifier = modifier.then(click),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center,
     ) {
         Text(
-            text = title,
+            text = label,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = if (compact) 9.sp else 11.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
+            fontSize = 10.sp,
+            fontWeight = FontWeight.Medium,
         )
-        Spacer(Modifier.height(if (compact) 4.dp else 8.dp))
-        Box(
-            modifier = Modifier.size(size),
-            contentAlignment = Alignment.Center,
-        ) {
-            CircularMeter(progress = progress, size = size)
+        Spacer(Modifier.height(4.dp))
+        Box(modifier = Modifier.size(size), contentAlignment = Alignment.Center) {
+            RingMeter(progress = progress, size = size, strokeFraction = 0.047f)
             Column(
+                modifier = Modifier.padding(horizontal = 11.dp),
                 horizontalAlignment = Alignment.CenterHorizontally,
-                verticalArrangement = Arrangement.Center,
-                modifier = Modifier.padding(horizontal = 16.dp),
             ) {
-                centerIcon?.let {
-                    Icon(
-                        imageVector = it,
-                        contentDescription = null,
-                        tint = MaterialTheme.colorScheme.primary,
-                        modifier = Modifier.size(if (compact) 20.dp else 25.dp),
-                    )
-                    Spacer(Modifier.height(2.dp))
-                }
                 Text(
-                    text = main,
+                    text = value,
                     color = MaterialTheme.colorScheme.onSurface,
-                    fontSize = if (compact) 16.sp else 21.sp,
-                    fontWeight = FontWeight.ExtraBold,
-                    textAlign = TextAlign.Center,
+                    fontSize = 16.sp,
+                    fontWeight = FontWeight.Bold,
                     maxLines = 1,
                     overflow = TextOverflow.Ellipsis,
                 )
                 Text(
-                    text = secondary,
+                    text = detail,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = if (compact) 7.sp else 9.sp,
+                    fontSize = 7.sp,
+                    lineHeight = 9.sp,
                     textAlign = TextAlign.Center,
                     maxLines = 2,
                     overflow = TextOverflow.Ellipsis,
@@ -507,14 +639,14 @@ private fun ScrCircleStatus(
 }
 
 @Composable
-private fun CircularMeter(progress: Float?, size: Dp) {
+private fun RingMeter(progress: Float?, size: Dp, strokeFraction: Float) {
     val target = progress?.coerceIn(0f, 1f) ?: 0f
-    val animated by animateFloatAsState(targetValue = target, label = "scrCircleMeter")
+    val animated by animateFloatAsState(targetValue = target, label = "zerofiRing")
     val accent = MaterialTheme.colorScheme.primary
-    val track = MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)
+    val track = MaterialTheme.colorScheme.outline.copy(alpha = 0.14f)
 
     Canvas(modifier = Modifier.size(size)) {
-        val stroke = Stroke(width = size.toPx() * 0.065f, cap = StrokeCap.Round)
+        val stroke = Stroke(width = size.toPx() * strokeFraction, cap = StrokeCap.Round)
         drawArc(
             color = track,
             startAngle = -90f,
@@ -523,9 +655,9 @@ private fun CircularMeter(progress: Float?, size: Dp) {
             style = stroke,
         )
         drawArc(
-            color = if (progress == null) accent.copy(alpha = 0.28f) else accent,
+            color = if (progress == null) accent.copy(alpha = 0.32f) else accent,
             startAngle = -90f,
-            sweepAngle = if (progress == null) 42f else 360f * animated,
+            sweepAngle = if (progress == null) 34f else animated * 360f,
             useCenter = false,
             style = stroke,
         )
@@ -533,31 +665,30 @@ private fun CircularMeter(progress: Float?, size: Dp) {
 }
 
 @Composable
-private fun ScrQuickAction(
+private fun UtilityTile(
     modifier: Modifier,
     icon: ImageVector,
-    title: String,
-    subtitle: String,
-    compact: Boolean,
+    label: String,
+    value: String,
     onClick: () -> Unit,
 ) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.965f else 1f, label = "scrActionPress")
-    val shape = RoundedCornerShape(if (compact) 14.dp else 18.dp)
+    val scale by animateFloatAsState(if (pressed) 0.975f else 1f, label = "utilityPress")
+    val shape = RoundedCornerShape(18.dp)
 
-    Column(
+    Row(
         modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.42f), shape)
-            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.30f), shape)
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.34f), shape)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.16f), shape)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = if (compact) 8.dp else 12.dp, vertical = if (compact) 8.dp else 11.dp),
-        horizontalAlignment = Alignment.CenterHorizontally,
+            .padding(horizontal = 12.dp, vertical = 11.dp),
+        verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             modifier = Modifier
-                .size(if (compact) 31.dp else 38.dp)
+                .size(38.dp)
                 .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.10f), CircleShape),
             contentAlignment = Alignment.Center,
         ) {
@@ -565,47 +696,96 @@ private fun ScrQuickAction(
                 imageVector = icon,
                 contentDescription = null,
                 tint = MaterialTheme.colorScheme.primary,
-                modifier = Modifier.size(if (compact) 17.dp else 21.dp),
+                modifier = Modifier.size(20.dp),
             )
         }
-        Spacer(Modifier.height(if (compact) 4.dp else 7.dp))
-        Text(
-            text = title,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = if (compact) 8.sp else 10.sp,
-            fontWeight = FontWeight.Bold,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
-        Text(
-            text = subtitle,
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = if (compact) 7.sp else 8.sp,
-            maxLines = 1,
-            overflow = TextOverflow.Ellipsis,
-        )
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = label,
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Text(
+                text = value,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 8.sp,
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+        }
     }
 }
 
 @Composable
-private fun ScrDivider() {
-    Spacer(Modifier.height(8.dp))
-    Box(
-        Modifier
+private fun DeviceFooter(
+    snapshot: SystemSnapshot,
+    hotspotActive: Boolean?,
+    onClick: () -> Unit,
+) {
+    Row(
+        modifier = Modifier
             .fillMaxWidth()
-            .height(1.dp)
-            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.18f)),
-    )
-    Spacer(Modifier.height(8.dp))
+            .clickable(onClick = onClick)
+            .padding(vertical = 2.dp),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Box(
+            modifier = Modifier
+                .size(40.dp)
+                .background(MaterialTheme.colorScheme.primary.copy(alpha = 0.09f), CircleShape),
+            contentAlignment = Alignment.Center,
+        ) {
+            Icon(
+                Icons.Rounded.Devices,
+                contentDescription = null,
+                tint = MaterialTheme.colorScheme.primary,
+                modifier = Modifier.size(20.dp),
+            )
+        }
+        Spacer(Modifier.width(10.dp))
+        Column(modifier = Modifier.weight(1f)) {
+            Text(
+                text = "Connected devices",
+                color = MaterialTheme.colorScheme.onSurface,
+                fontSize = 11.sp,
+                fontWeight = FontWeight.SemiBold,
+            )
+            Text(
+                text = when (hotspotActive) {
+                    true -> "Hotspot active · tap for client details"
+                    false -> "Hotspot is off"
+                    null -> "Tap for hotspot client details"
+                },
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 8.sp,
+            )
+        }
+        Column(horizontalAlignment = Alignment.End) {
+            Text(
+                text = "↓ ${snapshot.downloadBytesPerSecond?.let(::formatRate) ?: "—"}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 8.sp,
+            )
+            Text(
+                text = "↑ ${snapshot.uploadBytesPerSecond?.let(::formatRate) ?: "—"}",
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                fontSize = 8.sp,
+            )
+        }
+    }
 }
 
 @Composable
-private fun HeaderChip(icon: ImageVector, text: String, compact: Boolean) {
+private fun StatusPill(icon: ImageVector, text: String) {
     Row(
         modifier = Modifier
             .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
-            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.32f), RoundedCornerShape(14.dp))
-            .padding(horizontal = if (compact) 8.dp else 10.dp, vertical = if (compact) 6.dp else 7.dp),
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.18f), RoundedCornerShape(14.dp))
+            .padding(horizontal = 9.dp, vertical = 6.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.spacedBy(5.dp),
     ) {
@@ -618,70 +798,41 @@ private fun HeaderChip(icon: ImageVector, text: String, compact: Boolean) {
         Text(
             text = text,
             color = MaterialTheme.colorScheme.onSurface,
-            fontSize = if (compact) 8.sp else 9.sp,
-            fontWeight = FontWeight.SemiBold,
+            fontSize = 9.sp,
+            fontWeight = FontWeight.Medium,
             maxLines = 1,
         )
     }
 }
 
 @Composable
-private fun HeaderControl(
-    text: String,
-    trailing: ImageVector,
-    compact: Boolean,
-    onClick: () -> Unit,
-) {
+private fun CircleHeaderButton(icon: ImageVector, tint: Color, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val scale by animateFloatAsState(if (pressed) 0.97f else 1f, label = "scrHeaderPress")
-    val shape = RoundedCornerShape(14.dp)
-
-    Row(
+    val scale by animateFloatAsState(if (pressed) 0.94f else 1f, label = "headerButton")
+    Box(
         modifier = Modifier
+            .size(34.dp)
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .background(MaterialTheme.colorScheme.surface, shape)
-            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.34f), shape)
-            .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = if (compact) 8.dp else 10.dp, vertical = if (compact) 6.dp else 7.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(4.dp),
+            .background(MaterialTheme.colorScheme.surface, CircleShape)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.18f), CircleShape)
+            .clickable(interactionSource = interaction, indication = null, onClick = onClick),
+        contentAlignment = Alignment.Center,
     ) {
-        Text(
-            text = text,
-            color = MaterialTheme.colorScheme.onSurface,
-            fontSize = if (compact) 8.sp else 9.sp,
-            fontWeight = FontWeight.SemiBold,
-            maxLines = 1,
-        )
-        Icon(
-            imageVector = trailing,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(14.dp),
-        )
+        Icon(icon, contentDescription = null, tint = tint, modifier = Modifier.size(17.dp))
     }
 }
 
 @Composable
-private fun ThroughputBadge(icon: ImageVector, bytesPerSecond: Long?, prefix: String, compact: Boolean) {
-    Row(
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(3.dp),
-    ) {
-        Icon(
-            imageVector = icon,
-            contentDescription = null,
-            tint = MaterialTheme.colorScheme.primary,
-            modifier = Modifier.size(13.dp),
-        )
-        Text(
-            text = "$prefix ${bytesPerSecond?.let(::formatRate) ?: "—"}",
-            color = MaterialTheme.colorScheme.onSurfaceVariant,
-            fontSize = if (compact) 7.sp else 9.sp,
-            fontWeight = FontWeight.Medium,
-        )
-    }
+private fun CleanDivider() {
+    Spacer(Modifier.height(12.dp))
+    Box(
+        Modifier
+            .fillMaxWidth()
+            .height(1.dp)
+            .background(MaterialTheme.colorScheme.outline.copy(alpha = 0.12f)),
+    )
+    Spacer(Modifier.height(12.dp))
 }
 
 private fun formatDashboardBytes(bytes: Long): String {
