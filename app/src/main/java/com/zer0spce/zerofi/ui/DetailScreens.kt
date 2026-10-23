@@ -6,7 +6,20 @@ import androidx.compose.foundation.border
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.interaction.MutableInteractionSource
 import androidx.compose.foundation.interaction.collectIsPressedAsState
-import androidx.compose.foundation.layout.*
+import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ColumnScope
+import androidx.compose.foundation.layout.Row
+import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.fillMaxHeight
+import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -68,14 +81,16 @@ fun HotspotScreen(
     var localBand by remember(preferredBand) { mutableStateOf(preferredBand) }
 
     DetailPage("Hotspot", "Internet sharing & connection card", onBack) {
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-            SurfaceCard(Modifier.weight(1f).fillMaxHeight()) {
+        ResponsiveCards(
+            firstWeight = 1f,
+            secondWeight = 1.4f,
+            first = {
                 SectionLabel("ANDROID HOTSPOT")
                 Spacer(Modifier.height(10.dp))
                 BigStatus(
                     title = when (active) {
-                        true -> "Hotspot is ON"
-                        false -> "Hotspot is OFF"
+                        true -> "Hotspot is on"
+                        false -> "Hotspot is off"
                         null -> "System managed"
                     },
                     subtitle = detectedBand ?: "Status visibility depends on Android/OEM",
@@ -83,75 +98,113 @@ fun HotspotScreen(
                 )
                 Spacer(Modifier.height(12.dp))
                 InfoText(
-                    "ZeroFi uses the phone's real mobile-data tethering. Android blocks ordinary apps from silently changing hotspot settings on many devices, so ZeroFi opens the manufacturer's hotspot controls when needed.",
+                    "ZeroFi uses the phone's real tethering. On devices where Android restricts direct control, ZeroFi uses its configured hotspot automation or opens the manufacturer's controls.",
                 )
-                Spacer(Modifier.weight(1f))
-                GlowButton("Open Android Hotspot Controls", Icons.Rounded.OpenInNew, onOpenSystemHotspot)
-            }
-
-            SurfaceCard(Modifier.weight(1.55f).fillMaxHeight()) {
-                SectionLabel("ZEROFI CONNECTION CARD")
-                Spacer(Modifier.height(7.dp))
-                Row(horizontalArrangement = Arrangement.spacedBy(10.dp)) {
-                    Column(Modifier.weight(1f)) {
-                        OutlinedTextField(
-                            value = localSsid,
-                            onValueChange = { localSsid = it.take(32) },
-                            label = { Text("Wi-Fi name (SSID)") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        OutlinedTextField(
-                            value = localPassword,
-                            onValueChange = { localPassword = it.take(63) },
-                            label = { Text("Password") },
-                            singleLine = true,
-                            modifier = Modifier.fillMaxWidth(),
-                        )
-                        Spacer(Modifier.height(7.dp))
-                        SmallLabel("Security")
-                        ChoiceRow(
-                            values = listOf("WPA", "nopass"),
-                            selected = localSecurity,
-                            onSelect = { localSecurity = it },
-                        )
-                        Spacer(Modifier.height(6.dp))
-                        SmallLabel("Preferred band")
-                        ChoiceRow(
-                            values = listOf("System", "2.4 GHz", "5 GHz"),
-                            selected = localBand,
-                            onSelect = { localBand = it },
-                        )
-                    }
-
-                    Column(
-                        modifier = Modifier.width(150.dp),
-                        horizontalAlignment = Alignment.CenterHorizontally,
-                    ) {
-                        val bitmap = remember(localSsid, localPassword, localSecurity) {
-                            generateQrBitmap(wifiQrPayload(localSsid, localPassword, localSecurity), 320)
-                        }
-                        if (bitmap != null) {
-                            Image(
-                                bitmap = bitmap.asImageBitmap(),
-                                contentDescription = "Wi-Fi QR code",
-                                modifier = Modifier
-                                    .size(142.dp)
-                                    .background(Color.White, RoundedCornerShape(10.dp))
-                                    .padding(7.dp),
+                Spacer(Modifier.height(14.dp))
+                ActionButton("Open Android Hotspot Controls", Icons.Rounded.OpenInNew, onOpenSystemHotspot)
+            },
+            second = {
+                SectionLabel("CONNECTION CARD")
+                Spacer(Modifier.height(8.dp))
+                BoxWithConstraints(Modifier.fillMaxWidth()) {
+                    val stacked = maxWidth < 520.dp
+                    if (stacked) {
+                        Column {
+                            HotspotFields(
+                                localSsid = localSsid,
+                                localPassword = localPassword,
+                                localSecurity = localSecurity,
+                                localBand = localBand,
+                                onSsid = { localSsid = it.take(32) },
+                                onPassword = { localPassword = it.take(63) },
+                                onSecurity = { localSecurity = it },
+                                onBand = { localBand = it },
                             )
+                            Spacer(Modifier.height(14.dp))
+                            QrConnectionCard(localSsid, localPassword, localSecurity)
                         }
-                        Spacer(Modifier.height(6.dp))
-                        Text("Scan to connect", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    } else {
+                        Row(horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                            Column(Modifier.weight(1f)) {
+                                HotspotFields(
+                                    localSsid = localSsid,
+                                    localPassword = localPassword,
+                                    localSecurity = localSecurity,
+                                    localBand = localBand,
+                                    onSsid = { localSsid = it.take(32) },
+                                    onPassword = { localPassword = it.take(63) },
+                                    onSecurity = { localSecurity = it },
+                                    onBand = { localBand = it },
+                                )
+                            }
+                            QrConnectionCard(localSsid, localPassword, localSecurity)
+                        }
                     }
                 }
-                Spacer(Modifier.weight(1f))
-                GlowButton("Save Connection Card", Icons.Rounded.Save) {
+                Spacer(Modifier.height(14.dp))
+                ActionButton("Save Connection Card", Icons.Rounded.Save) {
                     onSaveProfile(localSsid, localPassword, localSecurity, localBand)
                 }
-            }
+            },
+        )
+    }
+}
+
+@Composable
+private fun HotspotFields(
+    localSsid: String,
+    localPassword: String,
+    localSecurity: String,
+    localBand: String,
+    onSsid: (String) -> Unit,
+    onPassword: (String) -> Unit,
+    onSecurity: (String) -> Unit,
+    onBand: (String) -> Unit,
+) {
+    OutlinedTextField(
+        value = localSsid,
+        onValueChange = onSsid,
+        label = { Text("Wi-Fi name (SSID)") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(7.dp))
+    OutlinedTextField(
+        value = localPassword,
+        onValueChange = onPassword,
+        label = { Text("Password") },
+        singleLine = true,
+        modifier = Modifier.fillMaxWidth(),
+    )
+    Spacer(Modifier.height(9.dp))
+    SmallLabel("Security")
+    ChoiceRow(listOf("WPA", "nopass"), localSecurity, onSecurity)
+    Spacer(Modifier.height(8.dp))
+    SmallLabel("Preferred band")
+    ChoiceRow(listOf("System", "2.4 GHz", "5 GHz"), localBand, onBand)
+}
+
+@Composable
+private fun QrConnectionCard(ssid: String, password: String, security: String) {
+    Column(
+        modifier = Modifier.fillMaxWidth(),
+        horizontalAlignment = Alignment.CenterHorizontally,
+    ) {
+        val bitmap = remember(ssid, password, security) {
+            generateQrBitmap(wifiQrPayload(ssid, password, security), 320)
         }
+        if (bitmap != null) {
+            Image(
+                bitmap = bitmap.asImageBitmap(),
+                contentDescription = "Wi-Fi QR code",
+                modifier = Modifier
+                    .size(142.dp)
+                    .background(Color.White, RoundedCornerShape(12.dp))
+                    .padding(7.dp),
+            )
+        }
+        Spacer(Modifier.height(5.dp))
+        Text("Scan to connect", fontSize = 9.sp, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -162,38 +215,37 @@ fun DevicesScreen(
     onOpenHotspotSettings: () -> Unit,
 ) {
     DetailPage("Connected devices", "Hotspot client visibility", onBack) {
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-            SurfaceCard(Modifier.weight(1f).fillMaxHeight()) {
+        ResponsiveCards(
+            first = {
                 SectionLabel("CLIENT STATUS")
                 Spacer(Modifier.height(12.dp))
                 BigStatus(
                     title = when (hotspotActive) {
                         true -> "Hotspot active"
                         false -> "Hotspot inactive"
-                        null -> "Client table restricted"
+                        null -> "Client list restricted"
                     },
-                    subtitle = "ZeroFi never guesses connected-device counts.",
+                    subtitle = "ZeroFi never invents a connected-device count.",
                     positive = hotspotActive == true,
                 )
                 Spacer(Modifier.height(12.dp))
                 InfoText(
-                    "Many Android manufacturers keep the hotspot client list behind privileged system permissions. If a phone exposes it, ZeroFi can use it; otherwise Android's hotspot screen remains the source of truth.",
+                    "Many Android manufacturers keep the hotspot client table behind system permissions. When the phone exposes it, ZeroFi can show it; otherwise Android's hotspot screen remains the source of truth.",
                 )
-                Spacer(Modifier.weight(1f))
-                GlowButton("Open Hotspot Device List", Icons.Rounded.Devices, onOpenHotspotSettings)
-            }
-
-            SurfaceCard(Modifier.weight(1f).fillMaxHeight()) {
+                Spacer(Modifier.height(14.dp))
+                ActionButton("Open Hotspot Device List", Icons.Rounded.Devices, onOpenHotspotSettings)
+            },
+            second = {
                 SectionLabel("COMPATIBILITY")
                 Spacer(Modifier.height(12.dp))
                 FeatureLine("Android 6+", "Dashboard and router shell")
-                FeatureLine("Android 7+", "Dedicated app suspension when Device Owner")
-                FeatureLine("Android 16+", "Better tethering status visibility")
+                FeatureLine("Android 7+", "Device Owner app suspension")
+                FeatureLine("Android 16+", "Richer tethering visibility")
                 FeatureLine("OEM dependent", "Client names, IP/MAC and hotspot details")
-                Spacer(Modifier.weight(1f))
+                Spacer(Modifier.height(12.dp))
                 InfoText("Unsupported information is shown as unavailable rather than fabricated.")
-            }
-        }
+            },
+        )
     }
 }
 
@@ -212,8 +264,8 @@ fun DataScreen(
     var localDay by remember(cycleDay) { mutableFloatStateOf(cycleDay.toFloat()) }
 
     DetailPage("Mobile data", "Usage, allowance & billing cycle", onBack) {
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-            SurfaceCard(Modifier.weight(1f).fillMaxHeight()) {
+        ResponsiveCards(
+            first = {
                 SectionLabel("CURRENT USAGE")
                 Spacer(Modifier.height(12.dp))
                 FeatureLine("This cycle", snapshot.monthBytes?.let(::formatBytes) ?: "Unavailable")
@@ -224,13 +276,12 @@ fun DataScreen(
                 if (!snapshot.usageAccessGranted) {
                     InfoText("Usage Access is required for device-wide mobile-data counters.")
                     Spacer(Modifier.height(8.dp))
-                    GlowButton("Grant Usage Access", Icons.Rounded.DataUsage, onOpenUsageAccess)
+                    ActionButton("Grant Usage Access", Icons.Rounded.DataUsage, onOpenUsageAccess)
+                    Spacer(Modifier.height(8.dp))
                 }
-                Spacer(Modifier.weight(1f))
-                GlowButton("Open Android Data Usage", Icons.Rounded.OpenInNew, onOpenSystemDataUsage)
-            }
-
-            SurfaceCard(Modifier.weight(1.15f).fillMaxHeight()) {
+                ActionButton("Open Android Data Usage", Icons.Rounded.OpenInNew, onOpenSystemDataUsage)
+            },
+            second = {
                 SectionLabel("ZEROFI DATA LIMIT")
                 Spacer(Modifier.height(12.dp))
                 Text(
@@ -246,7 +297,7 @@ fun DataScreen(
                     },
                     valueRange = 1f..500f,
                 )
-                Spacer(Modifier.height(7.dp))
+                Spacer(Modifier.height(8.dp))
                 Text(
                     "Reset day: ${localDay.roundToInt()}",
                     color = MaterialTheme.colorScheme.onSurface,
@@ -262,9 +313,9 @@ fun DataScreen(
                     steps = 26,
                 )
                 Spacer(Modifier.height(8.dp))
-                InfoText("ZeroFi tracks usage for display and warnings; it does not alter your carrier plan or billing.")
-            }
-        }
+                InfoText("ZeroFi tracks usage for display and warnings; it does not change your carrier plan or billing.")
+            },
+        )
     }
 }
 
@@ -283,31 +334,30 @@ fun DisplayScreen(
     var brightness by remember { mutableFloatStateOf(if (oledSaver) 0.30f else 0.65f) }
 
     DetailPage("Display", "Always-on router screen controls", onBack) {
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-            SurfaceCard(Modifier.weight(1f).fillMaxHeight()) {
+        ResponsiveCards(
+            first = {
                 SectionLabel("SCREEN BEHAVIOR")
                 Spacer(Modifier.height(8.dp))
                 SettingSwitch(
                     title = "Keep screen awake",
-                    subtitle = "Prevents ZeroFi from dimming/sleeping while acting as a router",
+                    subtitle = "Keep ZeroFi visible while the phone acts as a router",
                     checked = keepScreenOn,
                     onCheckedChange = onKeepScreenOnChanged,
                 )
                 SettingSwitch(
                     title = "Immersive fullscreen",
-                    subtitle = "Hides status and navigation bars",
+                    subtitle = "Hide status and navigation bars",
                     checked = immersiveMode,
                     onCheckedChange = onImmersiveModeChanged,
                 )
                 SettingSwitch(
                     title = "OLED Saver",
-                    subtitle = "True black UI, reduced glow and anti-burn-in pixel drift",
+                    subtitle = "True black UI, lower glow and anti-burn-in pixel drift",
                     checked = oledSaver,
                     onCheckedChange = onOledSaverChanged,
                 )
-            }
-
-            SurfaceCard(Modifier.weight(1f).fillMaxHeight()) {
+            },
+            second = {
                 SectionLabel("BRIGHTNESS")
                 Spacer(Modifier.height(12.dp))
                 Text(
@@ -325,15 +375,15 @@ fun DisplayScreen(
                 )
                 InfoText(
                     if (oledSaver) {
-                        "For OLED phones, true black pixels are off. Lower brightness also reduces the power used by lit pixels. ZeroFi shifts the dashboard a few pixels every minute to reduce static burn-in risk."
+                        "OLED Saver keeps unused pixels black, reduces glow, and shifts the dashboard slightly over time to reduce static burn-in risk."
                     } else {
                         "Lowering brightness is usually the biggest display-side battery saving for an always-on router dashboard."
                     },
                 )
-                Spacer(Modifier.weight(1f))
-                GlowButton("Use System Brightness", Icons.Rounded.Brightness6, onSystemBrightness)
-            }
-        }
+                Spacer(Modifier.height(12.dp))
+                ActionButton("Use System Brightness", Icons.Rounded.Brightness6, onSystemBrightness)
+            },
+        )
     }
 }
 
@@ -350,8 +400,8 @@ fun SettingsScreen(
     onOpenAppSettings: () -> Unit,
 ) {
     DetailPage("Router settings", "Dedicated-device controls", onBack) {
-        Row(Modifier.fillMaxSize(), horizontalArrangement = Arrangement.spacedBy(13.dp)) {
-            SurfaceCard(Modifier.weight(1f).fillMaxHeight()) {
+        ResponsiveCards(
+            first = {
                 SectionLabel("DEDICATED ROUTER MODE")
                 Spacer(Modifier.height(8.dp))
                 SettingSwitch(
@@ -372,22 +422,21 @@ fun SettingsScreen(
                     onCheckedChange = onDedicatedBatterySaverChanged,
                 )
                 Spacer(Modifier.height(8.dp))
-                GlowButton(
+                ActionButton(
                     text = if (lockRunning) "Exit Router Lock" else "Enable Router Lock",
                     icon = Icons.Rounded.Lock,
                     onClick = onRouterLockToggle,
                 )
-                Spacer(Modifier.height(10.dp))
+                Spacer(Modifier.height(12.dp))
                 FeatureLine("Device Owner", if (deviceOwner) "Configured" else "Not configured")
                 FeatureLine("Router Lock", if (lockRunning) "Active" else "Inactive")
                 FeatureLine("OLED Saver", if (settings.oledSaver) "On" else "Off")
-            }
-
-            SurfaceCard(Modifier.weight(1.1f).fillMaxHeight()) {
+            },
+            second = {
                 SectionLabel("DEVICE OWNER SETUP")
                 Spacer(Modifier.height(9.dp))
                 InfoText(
-                    "Full kiosk mode and user-app suspension require ZeroFi to be Device Owner. This is intended for a spare/dedicated phone and normally must be configured before the device has accounts or after a factory reset.",
+                    "Full kiosk mode and user-app suspension require ZeroFi to be Device Owner. This is intended for a spare/dedicated phone and normally must be configured before accounts are added or after a factory reset.",
                 )
                 Spacer(Modifier.height(10.dp))
                 Text(
@@ -397,23 +446,23 @@ fun SettingsScreen(
                     fontSize = 10.sp,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(10.dp))
+                        .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f), RoundedCornerShape(12.dp))
                         .padding(10.dp),
                 )
                 Spacer(Modifier.height(10.dp))
                 InfoText(
-                    "Dedicated Battery Saver deliberately ignores Android system apps and only asks Device Policy to suspend ordinary installed user apps. Apps Android refuses to suspend are left alone.",
+                    "Dedicated Battery Saver deliberately ignores Android system apps and only asks Device Policy to suspend ordinary installed user apps.",
                 )
-                Spacer(Modifier.weight(1f))
-                GlowButton("Open ZeroFi App Settings", Icons.Rounded.Settings, onOpenAppSettings)
+                Spacer(Modifier.height(12.dp))
+                ActionButton("Open ZeroFi App Settings", Icons.Rounded.Settings, onOpenAppSettings)
                 Spacer(Modifier.height(8.dp))
                 Text(
                     "ZeroFi ${BuildConfig.VERSION_NAME}",
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     fontSize = 9.sp,
                 )
-            }
-        }
+            },
+        )
     }
 }
 
@@ -428,22 +477,24 @@ private fun DetailPage(
         modifier = Modifier
             .fillMaxSize()
             .background(MaterialTheme.colorScheme.background)
-            .padding(14.dp),
+            .padding(horizontal = 14.dp, vertical = 12.dp),
     ) {
         Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
             IconButtonTile(Icons.Rounded.ArrowBack, "Back", onBack)
             Spacer(Modifier.width(10.dp))
-            Column {
+            Column(Modifier.weight(1f)) {
                 Text(
                     title,
                     color = MaterialTheme.colorScheme.onBackground,
-                    fontSize = 24.sp,
-                    fontWeight = FontWeight.Black,
+                    fontSize = 22.sp,
+                    fontWeight = FontWeight.ExtraBold,
                 )
                 Text(
                     subtitle,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    fontSize = 10.sp,
+                    fontSize = 9.sp,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis,
                 )
             }
         }
@@ -453,16 +504,48 @@ private fun DetailPage(
 }
 
 @Composable
+private fun ResponsiveCards(
+    firstWeight: Float = 1f,
+    secondWeight: Float = 1f,
+    first: @Composable ColumnScope.() -> Unit,
+    second: @Composable ColumnScope.() -> Unit,
+) {
+    BoxWithConstraints(Modifier.fillMaxSize()) {
+        val portrait = maxHeight > maxWidth
+        if (portrait) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(10.dp),
+            ) {
+                SurfaceCard(Modifier.fillMaxWidth(), first)
+                SurfaceCard(Modifier.fillMaxWidth(), second)
+                Spacer(Modifier.height(4.dp))
+            }
+        } else {
+            Row(
+                modifier = Modifier.fillMaxSize(),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+            ) {
+                SurfaceCard(Modifier.weight(firstWeight).fillMaxHeight(), first)
+                SurfaceCard(Modifier.weight(secondWeight).fillMaxHeight(), second)
+            }
+        }
+    }
+}
+
+@Composable
 private fun SurfaceCard(
     modifier: Modifier = Modifier,
     content: @Composable ColumnScope.() -> Unit,
 ) {
-    val shape = RoundedCornerShape(18.dp)
+    val shape = RoundedCornerShape(20.dp)
     Column(
         modifier = modifier
-            .shadow(6.dp, shape)
+            .shadow(3.dp, shape)
             .background(MaterialTheme.colorScheme.surface, shape)
-            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.65f), shape)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.20f), shape)
             .padding(14.dp),
         content = content,
     )
@@ -474,8 +557,8 @@ private fun SectionLabel(text: String) {
         text,
         color = MaterialTheme.colorScheme.primary,
         fontSize = 9.sp,
-        fontWeight = FontWeight.Black,
-        letterSpacing = 1.3.sp,
+        fontWeight = FontWeight.Bold,
+        letterSpacing = 1.1.sp,
     )
 }
 
@@ -489,13 +572,13 @@ private fun BigStatus(title: String, subtitle: String, positive: Boolean) {
     Row(
         Modifier
             .fillMaxWidth()
-            .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(14.dp))
+            .background(MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.45f), RoundedCornerShape(14.dp))
             .padding(12.dp),
         verticalAlignment = Alignment.CenterVertically,
     ) {
         Box(
             Modifier
-                .size(12.dp)
+                .size(10.dp)
                 .background(
                     if (positive) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
                     CircleShape,
@@ -503,7 +586,7 @@ private fun BigStatus(title: String, subtitle: String, positive: Boolean) {
         )
         Spacer(Modifier.width(10.dp))
         Column(Modifier.weight(1f)) {
-            Text(title, color = MaterialTheme.colorScheme.onSurface, fontSize = 16.sp, fontWeight = FontWeight.Bold)
+            Text(title, color = MaterialTheme.colorScheme.onSurface, fontSize = 15.sp, fontWeight = FontWeight.Bold)
             Text(subtitle, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp)
         }
     }
@@ -562,7 +645,7 @@ private fun SettingSwitch(
                 title,
                 color = if (enabled) MaterialTheme.colorScheme.onSurface else MaterialTheme.colorScheme.onSurfaceVariant,
                 fontSize = 12.sp,
-                fontWeight = FontWeight.Bold,
+                fontWeight = FontWeight.SemiBold,
             )
             Text(
                 subtitle,
@@ -572,20 +655,12 @@ private fun SettingSwitch(
             )
         }
         Spacer(Modifier.width(10.dp))
-        Switch(
-            checked = checked,
-            onCheckedChange = onCheckedChange,
-            enabled = enabled,
-        )
+        Switch(checked = checked, onCheckedChange = onCheckedChange, enabled = enabled)
     }
 }
 
 @Composable
-private fun ChoiceRow(
-    values: List<String>,
-    selected: String,
-    onSelect: (String) -> Unit,
-) {
+private fun ChoiceRow(values: List<String>, selected: String, onSelect: (String) -> Unit) {
     Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
         values.forEach { value ->
             val isSelected = value == selected
@@ -601,7 +676,7 @@ private fun ChoiceRow(
                     )
                     .border(
                         1.dp,
-                        if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline,
+                        if (isSelected) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.outline.copy(alpha = 0.25f),
                         RoundedCornerShape(9.dp),
                     )
                     .clickable { onSelect(value) }
@@ -612,30 +687,26 @@ private fun ChoiceRow(
 }
 
 @Composable
-private fun GlowButton(
-    text: String,
-    icon: ImageVector,
-    onClick: () -> Unit,
-) {
+private fun ActionButton(text: String, icon: ImageVector, onClick: () -> Unit) {
     val interaction = remember { MutableInteractionSource() }
     val pressed by interaction.collectIsPressedAsState()
-    val scale = if (pressed) 0.97f else 1f
-    val shape = RoundedCornerShape(12.dp)
+    val scale = if (pressed) 0.98f else 1f
+    val shape = RoundedCornerShape(13.dp)
 
     Row(
         modifier = Modifier
             .fillMaxWidth()
             .graphicsLayer { scaleX = scale; scaleY = scale }
-            .background(MaterialTheme.colorScheme.primary.copy(alpha = if (pressed) 0.22f else 0.13f), shape)
-            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.62f), shape)
+            .background(MaterialTheme.colorScheme.primary.copy(alpha = if (pressed) 0.15f else 0.09f), shape)
+            .border(1.dp, MaterialTheme.colorScheme.primary.copy(alpha = 0.28f), shape)
             .clickable(interactionSource = interaction, indication = null, onClick = onClick)
-            .padding(horizontal = 12.dp, vertical = 10.dp),
+            .padding(horizontal = 12.dp, vertical = 11.dp),
         verticalAlignment = Alignment.CenterVertically,
         horizontalArrangement = Arrangement.Center,
     ) {
         Icon(icon, contentDescription = null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(17.dp))
         Spacer(Modifier.width(7.dp))
-        Text(text, color = MaterialTheme.colorScheme.onSurface, fontSize = 10.sp, fontWeight = FontWeight.Bold)
+        Text(text, color = MaterialTheme.colorScheme.onSurface, fontSize = 10.sp, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -644,8 +715,8 @@ private fun IconButtonTile(icon: ImageVector, label: String, onClick: () -> Unit
     val shape = RoundedCornerShape(12.dp)
     Row(
         modifier = Modifier
-            .background(MaterialTheme.colorScheme.surfaceVariant, shape)
-            .border(1.dp, MaterialTheme.colorScheme.outline, shape)
+            .background(MaterialTheme.colorScheme.surface, shape)
+            .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.20f), shape)
             .clickable(onClick = onClick)
             .padding(horizontal = 10.dp, vertical = 8.dp),
         verticalAlignment = Alignment.CenterVertically,
