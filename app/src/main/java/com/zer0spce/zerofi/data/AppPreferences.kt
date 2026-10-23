@@ -7,9 +7,8 @@ class AppPreferences(context: Context) {
     private val prefs = context.getSharedPreferences(PREFS_NAME, Context.MODE_PRIVATE)
 
     var accentTheme: AccentTheme
-        get() = runCatching {
-            AccentTheme.valueOf(prefs.getString(KEY_ACCENT, AccentTheme.SUNSET_ORANGE.name)!!)
-        }.getOrDefault(AccentTheme.SUNSET_ORANGE)
+        get() = runCatching { AccentTheme.valueOf(prefs.getString(KEY_ACCENT, AccentTheme.SUNSET_ORANGE.name)!!) }
+            .getOrDefault(AccentTheme.SUNSET_ORANGE)
         set(value) = prefs.edit().putString(KEY_ACCENT, value.name).apply()
 
     var darkMode: Boolean
@@ -28,13 +27,19 @@ class AppPreferences(context: Context) {
         get() = prefs.getInt(KEY_CYCLE_DAY, 1).coerceIn(1, 28)
         set(value) = prefs.edit().putInt(KEY_CYCLE_DAY, value.coerceIn(1, 28)).apply()
 
+    // Default OFF so a spare router phone is allowed to sleep and save battery.
     var keepScreenOn: Boolean
-        get() = prefs.getBoolean(KEY_KEEP_SCREEN_ON, true)
+        get() = prefs.getBoolean(KEY_KEEP_SCREEN_ON, false)
         set(value) = prefs.edit().putBoolean(KEY_KEEP_SCREEN_ON, value).apply()
 
     var autoLaunchOnBoot: Boolean
         get() = prefs.getBoolean(KEY_AUTO_LAUNCH, false)
         set(value) = prefs.edit().putBoolean(KEY_AUTO_LAUNCH, value).apply()
+
+    // Opt-in only. ZeroFi never pushes Accessibility setup on first launch.
+    var hotspotAutomationEnabled: Boolean
+        get() = prefs.getBoolean(KEY_HOTSPOT_AUTOMATION, false)
+        set(value) = prefs.edit().putBoolean(KEY_HOTSPOT_AUTOMATION, value).apply()
 
     var immersiveMode: Boolean
         get() = prefs.getBoolean(KEY_IMMERSIVE, true)
@@ -69,6 +74,7 @@ class AppPreferences(context: Context) {
         private const val KEY_CYCLE_DAY = "cycle_reset_day"
         private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
         private const val KEY_AUTO_LAUNCH = "auto_launch_on_boot"
+        private const val KEY_HOTSPOT_AUTOMATION = "hotspot_automation_enabled"
         private const val KEY_IMMERSIVE = "immersive_mode"
         private const val KEY_DEDICATED_BATTERY_SAVER = "dedicated_battery_saver"
         private const val KEY_HOTSPOT_SSID = "hotspot_ssid"
