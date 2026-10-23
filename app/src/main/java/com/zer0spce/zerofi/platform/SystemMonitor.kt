@@ -18,6 +18,7 @@ import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import java.util.Calendar
+import kotlin.math.abs
 
 
 data class SystemSnapshot(
@@ -28,6 +29,7 @@ data class SystemSnapshot(
     val batteryPercent: Int? = null,
     val batteryTempC: Float? = null,
     val charging: Boolean = false,
+    val batteryTimeRemainingText: String = "Calculating…",
     val cellularDefault: Boolean = false,
     val validatedInternet: Boolean = false,
     val monthBytes: Long? = null,
@@ -43,6 +45,7 @@ class SystemMonitor(private val context: Context) {
     private var lastUsageResetDay = -1
     private var cachedMonthBytes: Long? = null
     private var cachedThreeDayBytes: Long? = null
+    private var smoothedDischargeUa: Double? = null
 
     suspend fun snapshot(resetDay: Int): SystemSnapshot = withContext(Dispatchers.IO) {
         val phonePermission = ContextCompat.checkSelfPermission(
@@ -52,6 +55,7 @@ class SystemMonitor(private val context: Context) {
 
         val telephony = appContext.getSystemService(TelephonyManager::class.java)
         val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
+        val batteryManager = appContext.getSystemService(BatteryManager::class.java)
         val batteryIntent = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
 
         val batteryLevel = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
@@ -66,6 +70,7 @@ class SystemMonitor(private val context: Context) {
         val batteryStatus = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
         val charging = batteryStatus == BatteryManager.BATTERY_STATUS_CHARGING ||
             batteryStatus == BatteryManager.BATTERY_STATUS_FULL
+        val batteryTimeRemaining = estimateBatteryTimeRemaining(batteryManager, charging)
 
         val activeNetwork = connectivity.activeNetwork
         val caps = activeNetwork?.let(connectivity::getNetworkCapabilities)
@@ -119,6 +124,7 @@ class SystemMonitor(private val context: Context) {
             batteryPercent = batteryPercent,
             batteryTempC = batteryTemp,
             charging = charging,
+            batteryTimeRemainingText = batteryTimeRemaining,
             cellularDefault = cellularDefault,
             validatedInternet = validated,
             monthBytes = cachedMonthBytes,
@@ -127,6 +133,47 @@ class SystemMonitor(private val context: Context) {
             phonePermissionGranted = phonePermission,
             uptimeText = formatUptime(SystemClock.elapsedRealtime()),
         )
+    }
+
+    private fun estimateBatteryTimeRemaining(
+        batteryManager: BatteryManager,
+        charging: Boolean,
+    ): String {
+        if (charging) {
+            smoothedDischargeUa = null
+            return "Charging"
+        }
+
+        val chargeCounter = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
+        val averageCurrent = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
+        val currentNow = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
+        if (chargeCounter <= 0 || chargeCounter == Int.MIN_VALUE) return "Calculating…"
+
+        val rawCurrent = when {
+            averageCurrent != Int.MIN_VALUE && abs(averageCurrent) >= MIN_USEFUL_CURRENT_UA -> abs(averageCurrent).toDouble()
+            currentNow != Int.MIN_VALUE && abs(currentNow) >= MIN_USEFUL_CURRENT_UA -> abs(currentNow).toDouble()
+            else -> return "Calculating…"
+        }
+
+        val smoothed = smoothedDischargeUa?.let { previous ->
+            previous * 0.75 + rawCurrent * 0.25
+        } ?: rawCurrent
+        smoothedDischargeUa = smoothed
+
+        val hours = chargeCounter.toDouble() / smoothed
+        if (!hours.isFinite() || hours < 0.08 || hours > 96.0) return "Calculating…"
+        return formatRemainingHours(hours)
+    }
+
+    private fun formatRemainingHours(hours: Double): String {
+        val totalMinutes = (hours * 60.0).toInt().coerceAtLeast(1)
+        val h = totalMinutes / 60
+        val m = totalMinutes % 60
+        return when {
+            h >= 24 -> "~${h / 24}d ${h % 24}h left"
+            h > 0 -> "~${h}h ${m}m left"
+            else -> "~${m}m left"
+        }
     }
 
     private fun hasUsageAccess(): Boolean {
@@ -149,11 +196,7 @@ class SystemMonitor(private val context: Context) {
         val now = System.currentTimeMillis()
         val manager = appContext.getSystemService(NetworkStatsManager::class.java)
         cachedMonthBytes = queryMobileBytes(manager, cycleStartMillis(resetDay), now)
-        cachedThreeDayBytes = queryMobileBytes(
-            manager,
-            now - THREE_DAYS_MS,
-            now,
-        )
+        cachedThreeDayBytes = queryMobileBytes(manager, now - THREE_DAYS_MS, now)
     }
 
     @Suppress("DEPRECATION")
@@ -174,9 +217,7 @@ class SystemMonitor(private val context: Context) {
     private fun cycleStartMillis(resetDay: Int): Long {
         val day = resetDay.coerceIn(1, 28)
         val calendar = Calendar.getInstance()
-        if (calendar.get(Calendar.DAY_OF_MONTH) < day) {
-            calendar.add(Calendar.MONTH, -1)
-        }
+        if (calendar.get(Calendar.DAY_OF_MONTH) < day) calendar.add(Calendar.MONTH, -1)
         calendar.set(Calendar.DAY_OF_MONTH, day)
         calendar.set(Calendar.HOUR_OF_DAY, 0)
         calendar.set(Calendar.MINUTE, 0)
@@ -206,15 +247,12 @@ class SystemMonitor(private val context: Context) {
         val days = totalMinutes / (24 * 60)
         val hours = (totalMinutes / 60) % 24
         val minutes = totalMinutes % 60
-        return if (days > 0) {
-            "${days}d ${hours}h ${minutes}m"
-        } else {
-            "${hours}h ${minutes}m"
-        }
+        return if (days > 0) "${days}d ${hours}h ${minutes}m" else "${hours}h ${minutes}m"
     }
 
     companion object {
         private const val USAGE_CACHE_MS = 60_000L
         private const val THREE_DAYS_MS = 3L * 24L * 60L * 60L * 1000L
+        private const val MIN_USEFUL_CURRENT_UA = 5_000
     }
 }
