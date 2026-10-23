@@ -1,9 +1,11 @@
 package com.zer0spce.zerofi.ui.theme
 
+import androidx.compose.material3.LocalContentColor
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.lightColorScheme
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.CompositionLocalProvider
 import androidx.compose.ui.graphics.Color
 
 // Kept for preference compatibility; the SCR01 UI intentionally uses one system accent.
@@ -35,12 +37,19 @@ fun ZeroFiTheme(accentTheme: AccentTheme, darkMode: Boolean, oledSaver: Boolean 
     val colors = if (darkMode || oledSaver) {
         darkColorScheme(
             primary = blue,
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFF1C315B),
+            onPrimaryContainer = Color(0xFFDCE6FF),
             secondary = blueSoft,
+            onSecondary = Color(0xFF081A36),
+            secondaryContainer = Color(0xFF28334A),
+            onSecondaryContainer = Color(0xFFE5EAFF),
+            tertiaryContainer = Color(0xFF243A35),
+            onTertiaryContainer = Color(0xFFD9FFF1),
             background = if (oledSaver) Color.Black else ZeroFiBackground,
             surface = if (oledSaver) OledSurface else ZeroFiSurface,
             surfaceVariant = if (oledSaver) OledSurfaceRaised else ZeroFiSurfaceRaised,
             outline = if (oledSaver) OledBorder else ZeroFiBorder,
-            onPrimary = Color.White,
             onBackground = ZeroFiText,
             onSurface = ZeroFiText,
             onSurfaceVariant = if (oledSaver) OledTextMuted else ZeroFiTextMuted,
@@ -48,16 +57,27 @@ fun ZeroFiTheme(accentTheme: AccentTheme, darkMode: Boolean, oledSaver: Boolean 
     } else {
         lightColorScheme(
             primary = blue,
+            onPrimary = Color.White,
+            primaryContainer = Color(0xFFDCE6FF),
+            onPrimaryContainer = Color(0xFF102550),
             secondary = blueSoft,
+            onSecondary = Color(0xFF0B2447),
+            secondaryContainer = Color(0xFFE2E9F8),
+            onSecondaryContainer = Color(0xFF20283A),
+            tertiaryContainer = Color(0xFFDDF5EE),
+            onTertiaryContainer = Color(0xFF16342D),
             background = Color(0xFFF5F6F8),
             surface = Color.White,
             surfaceVariant = Color(0xFFE9EBEF),
             outline = Color(0xFFD1D5DB),
-            onPrimary = Color.White,
             onBackground = Color(0xFF17191C),
             onSurface = Color(0xFF17191C),
             onSurfaceVariant = Color(0xFF686D75),
         )
     }
-    MaterialTheme(colorScheme = colors, content = content)
+    MaterialTheme(colorScheme = colors) {
+        CompositionLocalProvider(LocalContentColor provides colors.onBackground) {
+            content()
+        }
+    }
 }
