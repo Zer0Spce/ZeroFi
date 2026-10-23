@@ -19,11 +19,20 @@ import kotlinx.coroutines.delay
 enum class AppScreen { DASHBOARD, HOTSPOT, DEVICES, DATA, DISPLAY, SETTINGS, DIAGNOSTICS, STANDBY }
 
 data class ZeroFiSettingsState(
-    val accentTheme: AccentTheme, val darkMode: Boolean, val oledSaver: Boolean,
-    val dataLimitGb: Float, val cycleResetDay: Int, val keepScreenOn: Boolean,
-    val autoLaunchOnBoot: Boolean, val hotspotAutomationEnabled: Boolean,
-    val immersiveMode: Boolean, val dedicatedBatterySaver: Boolean,
-    val hotspotSsid: String, val hotspotPassword: String, val hotspotSecurity: String,
+    val accentTheme: AccentTheme,
+    val darkMode: Boolean,
+    val oledSaver: Boolean,
+    val dataLimitGb: Float,
+    val cycleResetDay: Int,
+    val keepScreenOn: Boolean,
+    val autoLaunchOnBoot: Boolean,
+    val hotspotAutomationEnabled: Boolean,
+    val immersiveMode: Boolean,
+    val dedicatedBatterySaver: Boolean,
+    val hotspotSsid: String,
+    val hotspotPassword: String,
+    val hotspotSecurity: String,
+    val hotspotProfileConfirmed: Boolean,
     val preferredBand: String,
 )
 
@@ -38,14 +47,34 @@ fun ZeroFiApp() {
     var snapshot by remember { mutableStateOf(SystemSnapshot()) }
     var hotspotActive by remember { mutableStateOf<Boolean?>(null) }
     var detectedBand by remember { mutableStateOf<String?>(null) }
-    var lockRunning by remember { mutableStateOf(runCatching { RouterLockController.isLockTaskRunning(context) }.getOrDefault(false)) }
-    var settings by remember { mutableStateOf(ZeroFiSettingsState(
-        preferences.accentTheme, preferences.darkMode, preferences.oledSaver, preferences.dataLimitGb,
-        preferences.cycleResetDay, preferences.keepScreenOn, preferences.autoLaunchOnBoot,
-        preferences.hotspotAutomationEnabled, preferences.immersiveMode, preferences.dedicatedBatterySaver,
-        preferences.hotspotSsid, preferences.hotspotPassword, preferences.hotspotSecurity, preferences.preferredBand)) }
+    var lockRunning by remember {
+        mutableStateOf(runCatching { RouterLockController.isLockTaskRunning(context) }.getOrDefault(false))
+    }
+    var settings by remember {
+        mutableStateOf(
+            ZeroFiSettingsState(
+                accentTheme = preferences.accentTheme,
+                darkMode = preferences.darkMode,
+                oledSaver = preferences.oledSaver,
+                dataLimitGb = preferences.dataLimitGb,
+                cycleResetDay = preferences.cycleResetDay,
+                keepScreenOn = preferences.keepScreenOn,
+                autoLaunchOnBoot = preferences.autoLaunchOnBoot,
+                hotspotAutomationEnabled = preferences.hotspotAutomationEnabled,
+                immersiveMode = preferences.immersiveMode,
+                dedicatedBatterySaver = preferences.dedicatedBatterySaver,
+                hotspotSsid = preferences.hotspotSsid,
+                hotspotPassword = preferences.hotspotPassword,
+                hotspotSecurity = preferences.hotspotSecurity,
+                hotspotProfileConfirmed = preferences.hotspotProfileConfirmed,
+                preferredBand = preferences.preferredBand,
+            )
+        )
+    }
 
-    val phonePermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
+    val phonePermissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { }
 
     DisposableEffect(tetheringWatcher) {
         runCatching {
@@ -62,27 +91,38 @@ fun ZeroFiApp() {
                     } else {
                         status.password?.let { preferences.hotspotPassword = it }
                     }
+                    preferences.hotspotProfileConfirmed = true
                     settings = settings.copy(
                         hotspotSsid = preferences.hotspotSsid,
                         hotspotPassword = preferences.hotspotPassword,
                         hotspotSecurity = preferences.hotspotSecurity,
+                        hotspotProfileConfirmed = true,
                     )
                 }
             }
         }
         onDispose { runCatching { tetheringWatcher?.stop() } }
     }
+
     LaunchedEffect(Unit) {
-        if (settings.dedicatedBatterySaver && DedicatedModeController.isSupported(context))
+        if (settings.dedicatedBatterySaver && DedicatedModeController.isSupported(context)) {
             runCatching { DedicatedModeController.setUserAppsSuspended(context, true) }
+        }
     }
+
     LaunchedEffect(settings.hotspotAutomationEnabled) {
-        if (settings.hotspotAutomationEnabled && HotspotAutomationService.isEnabled(context))
+        if (settings.hotspotAutomationEnabled && HotspotAutomationService.isEnabled(context)) {
             HotspotAutomationService.requestEnsureHotspotOn()
+        }
     }
+
     LaunchedEffect(settings.cycleResetDay, monitor) {
         while (true) {
-            monitor?.let { runCatching { it.snapshot(settings.cycleResetDay) }.getOrNull()?.let { s -> snapshot = s } }
+            monitor?.let {
+                runCatching { it.snapshot(settings.cycleResetDay) }
+                    .getOrNull()
+                    ?.let { s -> snapshot = s }
+            }
             lockRunning = runCatching { RouterLockController.isLockTaskRunning(context) }.getOrDefault(false)
             delay(2_000L)
         }
@@ -99,40 +139,134 @@ fun ZeroFiApp() {
         Box(Modifier.fillMaxSize()) {
             when (screen) {
                 AppScreen.DASHBOARD -> DashboardScreen(
-                    snapshot, hotspotActive, detectedBand ?: settings.preferredBand, settings.dataLimitGb,
-                    settings.accentTheme, settings.darkMode, settings.oledSaver,
-                    { preferences.accentTheme = it; settings = settings.copy(accentTheme = it) },
-                    { preferences.darkMode = it; settings = settings.copy(darkMode = it) },
-                    { screen = it },
-                    { runCatching { phonePermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE) } },
-                    { RouterController.openUsageAccessSettings(context) },
-                    lockRunning,
-                    ::toggleLock)
-                AppScreen.HOTSPOT -> HotspotScreen(hotspotActive, detectedBand, settings.hotspotSsid, settings.hotspotPassword, settings.hotspotSecurity, settings.preferredBand,
-                    { screen = AppScreen.DASHBOARD }, { RouterController.openHotspotSettings(context) }) { ssid, password, security, band ->
-                    preferences.hotspotSsid = ssid; preferences.hotspotPassword = password; preferences.hotspotSecurity = security; preferences.preferredBand = band
-                    settings = settings.copy(hotspotSsid = preferences.hotspotSsid, hotspotPassword = preferences.hotspotPassword, hotspotSecurity = preferences.hotspotSecurity, preferredBand = preferences.preferredBand)
+                    snapshot = snapshot,
+                    hotspotActive = hotspotActive,
+                    hotspotBand = detectedBand ?: settings.preferredBand,
+                    dataLimitGb = settings.dataLimitGb,
+                    accentTheme = settings.accentTheme,
+                    darkMode = settings.darkMode,
+                    oledSaver = settings.oledSaver,
+                    onAccentThemeChange = {
+                        preferences.accentTheme = it
+                        settings = settings.copy(accentTheme = it)
+                    },
+                    onDarkModeChange = {
+                        preferences.darkMode = it
+                        settings = settings.copy(darkMode = it)
+                    },
+                    onNavigate = { screen = it },
+                    onRequestPhonePermission = {
+                        runCatching { phonePermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE) }
+                    },
+                    onRequestUsageAccess = { RouterController.openUsageAccessSettings(context) },
+                    lockRunning = lockRunning,
+                    onRouterLockToggle = ::toggleLock,
+                )
+
+                AppScreen.HOTSPOT -> HotspotScreen(
+                    active = hotspotActive,
+                    detectedBand = detectedBand,
+                    ssid = settings.hotspotSsid,
+                    password = settings.hotspotPassword,
+                    security = settings.hotspotSecurity,
+                    preferredBand = settings.preferredBand,
+                    profileConfirmed = settings.hotspotProfileConfirmed,
+                    onBack = { screen = AppScreen.DASHBOARD },
+                    onOpenSystemHotspot = { RouterController.openHotspotSettings(context) },
+                ) { ssid, password, security, band ->
+                    preferences.hotspotSsid = ssid
+                    preferences.hotspotPassword = password
+                    preferences.hotspotSecurity = security
+                    preferences.preferredBand = band
+                    preferences.hotspotProfileConfirmed = true
+                    settings = settings.copy(
+                        hotspotSsid = preferences.hotspotSsid,
+                        hotspotPassword = preferences.hotspotPassword,
+                        hotspotSecurity = preferences.hotspotSecurity,
+                        preferredBand = preferences.preferredBand,
+                        hotspotProfileConfirmed = true,
+                    )
                 }
-                AppScreen.DEVICES -> DevicesScreen(hotspotActive, { screen = AppScreen.DASHBOARD }) { RouterController.openHotspotSettings(context) }
-                AppScreen.DATA -> DataScreen(snapshot, settings.dataLimitGb, settings.cycleResetDay, { screen = AppScreen.DASHBOARD },
-                    { RouterController.openUsageAccessSettings(context) }, { RouterController.openDataUsageSettings(context) },
-                    { preferences.dataLimitGb = it; settings = settings.copy(dataLimitGb = preferences.dataLimitGb) },
-                    { preferences.cycleResetDay = it; settings = settings.copy(cycleResetDay = preferences.cycleResetDay) })
-                AppScreen.DISPLAY -> DisplayScreen(settings.keepScreenOn, settings.immersiveMode, settings.oledSaver, { screen = AppScreen.DASHBOARD },
-                    { preferences.keepScreenOn = it; settings = settings.copy(keepScreenOn = it); activity?.setKeepScreenOn(it) },
-                    { preferences.immersiveMode = it; settings = settings.copy(immersiveMode = it); activity?.setImmersiveMode(it) },
-                    { preferences.oledSaver = it; settings = settings.copy(oledSaver = it) },
-                    { activity?.setAppBrightness(it) }, { activity?.setAppBrightness(null) })
-                AppScreen.SETTINGS -> SettingsScreen(settings, RouterLockController.isDeviceOwner(context), lockRunning,
-                    DedicatedModeController.isSupported(context), { screen = AppScreen.DASHBOARD },
-                    { preferences.autoLaunchOnBoot = it; settings = settings.copy(autoLaunchOnBoot = it) }, ::toggleLock,
+
+                AppScreen.DEVICES -> DevicesScreen(
+                    hotspotActive,
+                    { screen = AppScreen.DASHBOARD },
+                ) { RouterController.openHotspotSettings(context) }
+
+                AppScreen.DATA -> DataScreen(
+                    snapshot,
+                    settings.dataLimitGb,
+                    settings.cycleResetDay,
+                    { screen = AppScreen.DASHBOARD },
+                    { RouterController.openUsageAccessSettings(context) },
+                    { RouterController.openDataUsageSettings(context) },
+                    {
+                        preferences.dataLimitGb = it
+                        settings = settings.copy(dataLimitGb = preferences.dataLimitGb)
+                    },
+                    {
+                        preferences.cycleResetDay = it
+                        settings = settings.copy(cycleResetDay = preferences.cycleResetDay)
+                    },
+                )
+
+                AppScreen.DISPLAY -> DisplayScreen(
+                    settings.keepScreenOn,
+                    settings.immersiveMode,
+                    settings.oledSaver,
+                    { screen = AppScreen.DASHBOARD },
+                    {
+                        preferences.keepScreenOn = it
+                        settings = settings.copy(keepScreenOn = it)
+                        activity?.setKeepScreenOn(it)
+                    },
+                    {
+                        preferences.immersiveMode = it
+                        settings = settings.copy(immersiveMode = it)
+                        activity?.setImmersiveMode(it)
+                    },
+                    {
+                        preferences.oledSaver = it
+                        settings = settings.copy(oledSaver = it)
+                    },
+                    { activity?.setAppBrightness(it) },
+                    { activity?.setAppBrightness(null) },
+                )
+
+                AppScreen.SETTINGS -> SettingsScreen(
+                    settings,
+                    RouterLockController.isDeviceOwner(context),
+                    lockRunning,
+                    DedicatedModeController.isSupported(context),
+                    { screen = AppScreen.DASHBOARD },
+                    {
+                        preferences.autoLaunchOnBoot = it
+                        settings = settings.copy(autoLaunchOnBoot = it)
+                    },
+                    ::toggleLock,
                     { enabled ->
-                        val r = runCatching { DedicatedModeController.setUserAppsSuspended(context, enabled) }.getOrNull()
-                        if (r?.success == true) { preferences.dedicatedBatterySaver = enabled; settings = settings.copy(dedicatedBatterySaver = enabled) }
-                    }, { RouterController.openAppSettings(context) },
-                    { screen = AppScreen.DIAGNOSTICS }, { screen = AppScreen.STANDBY })
-                AppScreen.DIAGNOSTICS -> DiagnosticsScreen(snapshot, hotspotActive, detectedBand ?: settings.preferredBand) { screen = AppScreen.SETTINGS }
-                AppScreen.STANDBY -> StandbyScreen(snapshot, hotspotActive) { screen = AppScreen.DASHBOARD }
+                        val r = runCatching {
+                            DedicatedModeController.setUserAppsSuspended(context, enabled)
+                        }.getOrNull()
+                        if (r?.success == true) {
+                            preferences.dedicatedBatterySaver = enabled
+                            settings = settings.copy(dedicatedBatterySaver = enabled)
+                        }
+                    },
+                    { RouterController.openAppSettings(context) },
+                    { screen = AppScreen.DIAGNOSTICS },
+                    { screen = AppScreen.STANDBY },
+                )
+
+                AppScreen.DIAGNOSTICS -> DiagnosticsScreen(
+                    snapshot,
+                    hotspotActive,
+                    detectedBand ?: settings.preferredBand,
+                ) { screen = AppScreen.SETTINGS }
+
+                AppScreen.STANDBY -> StandbyScreen(snapshot, hotspotActive) {
+                    screen = AppScreen.DASHBOARD
+                }
             }
 
             if (screen == AppScreen.SETTINGS) {
@@ -151,7 +285,8 @@ fun ZeroFiApp() {
                             settings = settings.copy(hotspotAutomationEnabled = false)
                             Toast.makeText(context, "Hotspot automation disabled", Toast.LENGTH_SHORT).show()
                         }
-                    })
+                    },
+                )
             }
         }
     }
