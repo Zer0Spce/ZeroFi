@@ -11,8 +11,8 @@ android {
         applicationId = "com.zer0spce.zerofi"
         minSdk = 23
         targetSdk = 37
-        versionCode = 8
-        versionName = "1.2.1"
+        versionCode = 9
+        versionName = "1.2.2"
     }
 
     val updateStorePath = System.getenv("ZEROFI_SIGNING_STORE_FILE")
