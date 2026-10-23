@@ -84,7 +84,9 @@ fun ZeroFiApp() {
                     { preferences.darkMode = it; settings = settings.copy(darkMode = it) },
                     { screen = it },
                     { runCatching { phonePermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE) } },
-                    { RouterController.openUsageAccessSettings(context) })
+                    { RouterController.openUsageAccessSettings(context) },
+                    lockRunning,
+                    ::toggleLock)
                 AppScreen.HOTSPOT -> HotspotScreen(hotspotActive, detectedBand, settings.hotspotSsid, settings.hotspotPassword, settings.hotspotSecurity, settings.preferredBand,
                     { screen = AppScreen.DASHBOARD }, { RouterController.openHotspotSettings(context) }) { ssid, password, security, band ->
                     preferences.hotspotSsid = ssid; preferences.hotspotPassword = password; preferences.hotspotSecurity = security; preferences.preferredBand = band
