@@ -27,15 +27,35 @@ val ZeroFiBorder = Color(0xFF27313C)
 val ZeroFiText = Color(0xFFF3F5F7)
 val ZeroFiTextMuted = Color(0xFF97A3B1)
 
+val OledBlack = Color.Black
+val OledSurface = Color(0xFF030303)
+val OledSurfaceRaised = Color(0xFF080808)
+val OledBorder = Color(0xFF1A1A1A)
+val OledTextMuted = Color(0xFF8C8C8C)
+
 @Composable
 fun ZeroFiTheme(
     accentTheme: AccentTheme,
     darkMode: Boolean,
+    oledSaver: Boolean = false,
     content: @Composable () -> Unit,
 ) {
     val accent = accentTheme.accent
-    val colors = if (darkMode) {
-        darkColorScheme(
+    val colors = when {
+        oledSaver -> darkColorScheme(
+            primary = accent,
+            secondary = accentTheme.accentSoft,
+            background = OledBlack,
+            surface = OledSurface,
+            surfaceVariant = OledSurfaceRaised,
+            outline = OledBorder,
+            onPrimary = Color.Black,
+            onBackground = ZeroFiText,
+            onSurface = ZeroFiText,
+            onSurfaceVariant = OledTextMuted,
+        )
+
+        darkMode -> darkColorScheme(
             primary = accent,
             secondary = accentTheme.accentSoft,
             background = ZeroFiBackground,
@@ -47,8 +67,8 @@ fun ZeroFiTheme(
             onSurface = ZeroFiText,
             onSurfaceVariant = ZeroFiTextMuted,
         )
-    } else {
-        lightColorScheme(
+
+        else -> lightColorScheme(
             primary = accent,
             secondary = accentTheme.accentSoft,
             background = Color(0xFFF3F5F7),
