@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">ZeroFi</string>
+    <string name="device_admin_description">Allows ZeroFi to run as a dedicated pocket Wi-Fi dashboard with Router Lock mode.</string>
+</resources>
