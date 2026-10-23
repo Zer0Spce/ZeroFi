@@ -48,7 +48,28 @@ fun ZeroFiApp() {
     val phonePermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     DisposableEffect(tetheringWatcher) {
-        runCatching { tetheringWatcher?.start { active, band -> hotspotActive = active; detectedBand = band } }
+        runCatching {
+            tetheringWatcher?.start { status ->
+                hotspotActive = status.active
+                detectedBand = status.band
+
+                val liveSsid = status.ssid
+                if (!liveSsid.isNullOrBlank()) {
+                    preferences.hotspotSsid = liveSsid
+                    status.security?.let { preferences.hotspotSecurity = it }
+                    if (status.security.equals("nopass", true)) {
+                        preferences.hotspotPassword = ""
+                    } else {
+                        status.password?.let { preferences.hotspotPassword = it }
+                    }
+                    settings = settings.copy(
+                        hotspotSsid = preferences.hotspotSsid,
+                        hotspotPassword = preferences.hotspotPassword,
+                        hotspotSecurity = preferences.hotspotSecurity,
+                    )
+                }
+            }
+        }
         onDispose { runCatching { tetheringWatcher?.stop() } }
     }
     LaunchedEffect(Unit) {
