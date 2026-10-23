@@ -18,6 +18,7 @@ import androidx.compose.foundation.layout.fillMaxHeight
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.offset
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -40,7 +41,9 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableIntStateOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
@@ -61,6 +64,7 @@ import androidx.compose.ui.unit.sp
 import com.zer0spce.zerofi.platform.SystemSnapshot
 import com.zer0spce.zerofi.ui.theme.AccentTheme
 import java.util.Locale
+import kotlinx.coroutines.delay
 
 @Composable
 fun DashboardScreen(
@@ -70,6 +74,7 @@ fun DashboardScreen(
     dataLimitGb: Float,
     accentTheme: AccentTheme,
     darkMode: Boolean,
+    oledSaver: Boolean,
     onAccentThemeChange: (AccentTheme) -> Unit,
     onDarkModeChange: (Boolean) -> Unit,
     onNavigate: (AppScreen) -> Unit,
@@ -77,13 +82,30 @@ fun DashboardScreen(
     onRequestUsageAccess: () -> Unit,
 ) {
     val accent = MaterialTheme.colorScheme.primary
-    val backgroundBrush = Brush.radialGradient(
-        colors = listOf(
-            accent.copy(alpha = if (darkMode) 0.12f else 0.08f),
-            MaterialTheme.colorScheme.background,
-        ),
-        radius = 1300f,
-    )
+    val backgroundBrush = if (oledSaver) {
+        Brush.linearGradient(listOf(Color.Black, Color.Black))
+    } else {
+        Brush.radialGradient(
+            colors = listOf(
+                accent.copy(alpha = if (darkMode) 0.12f else 0.08f),
+                MaterialTheme.colorScheme.background,
+            ),
+            radius = 1300f,
+        )
+    }
+
+    var driftStep by remember { mutableIntStateOf(0) }
+    LaunchedEffect(oledSaver) {
+        driftStep = 0
+        if (oledSaver) {
+            while (true) {
+                delay(60_000L)
+                driftStep = (driftStep + 1) % 8
+            }
+        }
+    }
+    val driftX = if (oledSaver) listOf((-2).dp, 0.dp, 2.dp, 1.dp, (-1).dp, 2.dp, 0.dp, (-2).dp)[driftStep] else 0.dp
+    val driftY = if (oledSaver) listOf(0.dp, 2.dp, 1.dp, (-2).dp, 2.dp, 0.dp, (-1).dp, (-2).dp)[driftStep] else 0.dp
 
     BoxWithConstraints(
         modifier = Modifier.fillMaxSize().background(backgroundBrush),
@@ -96,7 +118,10 @@ fun DashboardScreen(
         val signalProgress = snapshot.signalLevel?.let { it.coerceIn(0, 4) / 4f }
 
         Column(
-            modifier = Modifier.fillMaxSize().padding(outerPadding),
+            modifier = Modifier
+                .fillMaxSize()
+                .padding(outerPadding)
+                .offset(x = driftX, y = driftY),
         ) {
             DashboardHeader(
                 snapshot = snapshot,
@@ -124,6 +149,7 @@ fun DashboardScreen(
                     },
                     progress = monthProgress,
                     compact = compact,
+                    oledSaver = oledSaver,
                     onClick = if (snapshot.usageAccessGranted) null else onRequestUsageAccess,
                 )
 
@@ -134,6 +160,7 @@ fun DashboardScreen(
                     detail = if (snapshot.usageAccessGranted) "Mobile data" else "Usage Access needed",
                     progress = null,
                     compact = compact,
+                    oledSaver = oledSaver,
                     onClick = if (snapshot.usageAccessGranted) null else onRequestUsageAccess,
                 )
 
@@ -149,6 +176,7 @@ fun DashboardScreen(
                     },
                     progress = signalProgress,
                     compact = compact,
+                    oledSaver = oledSaver,
                     onClick = if (snapshot.phonePermissionGranted) null else onRequestPhonePermission,
                 )
 
@@ -177,6 +205,7 @@ fun DashboardScreen(
                         null -> "System controls"
                     },
                     compact = compact,
+                    oledSaver = oledSaver,
                     onClick = { onNavigate(AppScreen.HOTSPOT) },
                 )
                 ActionTile(
@@ -185,6 +214,7 @@ fun DashboardScreen(
                     title = "Devices",
                     subtitle = "Clients",
                     compact = compact,
+                    oledSaver = oledSaver,
                     onClick = { onNavigate(AppScreen.DEVICES) },
                 )
                 ActionTile(
@@ -193,14 +223,16 @@ fun DashboardScreen(
                     title = "Data",
                     subtitle = "Usage & limits",
                     compact = compact,
+                    oledSaver = oledSaver,
                     onClick = { onNavigate(AppScreen.DATA) },
                 )
                 ActionTile(
                     modifier = Modifier.weight(1f),
                     icon = Icons.Rounded.Brightness6,
                     title = "Display",
-                    subtitle = "Screen controls",
+                    subtitle = if (oledSaver) "OLED Saver ON" else "Screen controls",
                     compact = compact,
+                    oledSaver = oledSaver,
                     onClick = { onNavigate(AppScreen.DISPLAY) },
                 )
                 ActionTile(
@@ -209,6 +241,7 @@ fun DashboardScreen(
                     title = "Settings",
                     subtitle = "Router mode",
                     compact = compact,
+                    oledSaver = oledSaver,
                     onClick = { onNavigate(AppScreen.SETTINGS) },
                 )
             }
@@ -368,6 +401,7 @@ private fun GaugeCard(
     detail: String,
     progress: Float?,
     compact: Boolean,
+    oledSaver: Boolean,
     onClick: (() -> Unit)? = null,
 ) {
     val accent = MaterialTheme.colorScheme.primary
@@ -376,8 +410,13 @@ private fun GaugeCard(
 
     Column(
         modifier = modifier
-            .shadow(10.dp, shape, ambientColor = accent.copy(alpha = 0.10f), spotColor = accent.copy(alpha = 0.16f))
-            .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.95f), shape)
+            .shadow(
+                if (oledSaver) 1.dp else 10.dp,
+                shape,
+                ambientColor = accent.copy(alpha = if (oledSaver) 0.02f else 0.10f),
+                spotColor = accent.copy(alpha = if (oledSaver) 0.03f else 0.16f),
+            )
+            .background(MaterialTheme.colorScheme.surface.copy(alpha = if (oledSaver) 1f else 0.95f), shape)
             .border(1.dp, MaterialTheme.colorScheme.outline.copy(alpha = 0.60f), shape)
             .then(clickableModifier)
             .padding(if (compact) 10.dp else 15.dp),
@@ -489,6 +528,7 @@ private fun ActionTile(
     title: String,
     subtitle: String,
     compact: Boolean,
+    oledSaver: Boolean,
     onClick: () -> Unit,
 ) {
     val interactionSource = remember { MutableInteractionSource() }
@@ -496,7 +536,8 @@ private fun ActionTile(
     val accent = MaterialTheme.colorScheme.primary
     val scale by animateFloatAsState(if (pressed) 0.965f else 1f, label = "actionTileScale")
     val background by animateColorAsState(
-        if (pressed) accent.copy(alpha = 0.17f) else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.76f),
+        if (pressed) accent.copy(alpha = if (oledSaver) 0.10f else 0.17f)
+        else MaterialTheme.colorScheme.surfaceVariant.copy(alpha = if (oledSaver) 1f else 0.76f),
         label = "actionTileColor",
     )
     val shape = RoundedCornerShape(if (compact) 13.dp else 17.dp)
@@ -505,10 +546,10 @@ private fun ActionTile(
         modifier = modifier
             .graphicsLayer { scaleX = scale; scaleY = scale }
             .shadow(
-                if (pressed) 3.dp else 8.dp,
+                if (oledSaver) 1.dp else if (pressed) 3.dp else 8.dp,
                 shape,
-                ambientColor = accent.copy(alpha = if (pressed) 0.06f else 0.11f),
-                spotColor = accent.copy(alpha = if (pressed) 0.08f else 0.16f),
+                ambientColor = accent.copy(alpha = if (oledSaver) 0.02f else if (pressed) 0.06f else 0.11f),
+                spotColor = accent.copy(alpha = if (oledSaver) 0.03f else if (pressed) 0.08f else 0.16f),
             )
             .background(background, shape)
             .border(1.dp, if (pressed) accent.copy(alpha = 0.65f) else MaterialTheme.colorScheme.outline.copy(alpha = 0.55f), shape)
