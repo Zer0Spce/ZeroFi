@@ -96,10 +96,13 @@ class HotspotAutomationService : AccessibilityService() {
     }
 
     private fun collapseQuickSettings() {
-        runCatching { sendBroadcast(Intent(Intent.ACTION_CLOSE_SYSTEM_DIALOGS)) }
-        handler.postDelayed({ backIfSystemUiVisible() }, 80L)
-        handler.postDelayed({ backIfSystemUiVisible() }, 260L)
-        handler.postDelayed({ backIfSystemUiVisible() }, 520L)
+        // Expanded Quick Settings can require more than one Back action. Only
+        // continue backing out while SystemUI is still the active window so we
+        // never accidentally navigate away from ZeroFi after the shade closes.
+        handler.postDelayed({ backIfSystemUiVisible() }, 60L)
+        handler.postDelayed({ backIfSystemUiVisible() }, 220L)
+        handler.postDelayed({ backIfSystemUiVisible() }, 420L)
+        handler.postDelayed({ backIfSystemUiVisible() }, 650L)
     }
 
     private fun backIfSystemUiVisible() {
@@ -170,9 +173,6 @@ class HotspotAutomationService : AccessibilityService() {
 
         when (profileStage) {
             ProfileStage.OPEN_TETHER_PAGE -> {
-                // If the direct Wi-Fi tether settings action worked, we may already be
-                // on the hotspot detail page. Check for real profile controls first so
-                // we never mistake the page title for the overview row.
                 if (containsProfileControls(root)) {
                     profileStage = ProfileStage.SSID
                     scheduleProfileScan(120L)
@@ -195,10 +195,6 @@ class HotspotAutomationService : AccessibilityService() {
                     return
                 }
 
-                // Some Settings builds animate slowly or keep us on the overview if
-                // the first click lands on the text instead of the preference row.
-                // Keep retrying the actual clickable hotspot row until the detail page
-                // is confirmed by the presence of SSID/password controls.
                 val hotspotPage = findActionableLabelNode(root, HOTSPOT_SETTINGS_LABELS, 10)
                 if (hotspotPage != null) {
                     clickNodeOrParent(hotspotPage, 10)
@@ -303,7 +299,6 @@ class HotspotAutomationService : AccessibilityService() {
         profileResult = null
         callback?.invoke(success, message)
 
-        // Return from Wi-Fi hotspot detail -> Hotspot & tethering -> ZeroFi.
         handler.postDelayed({ performGlobalAction(GLOBAL_ACTION_BACK) }, 180L)
         handler.postDelayed({ performGlobalAction(GLOBAL_ACTION_BACK) }, 480L)
     }
