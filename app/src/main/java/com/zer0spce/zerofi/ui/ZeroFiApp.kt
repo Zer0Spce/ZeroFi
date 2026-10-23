@@ -14,6 +14,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.platform.LocalContext
 import com.zer0spce.zerofi.MainActivity
 import com.zer0spce.zerofi.data.AppPreferences
+import com.zer0spce.zerofi.platform.DedicatedModeController
 import com.zer0spce.zerofi.platform.RouterController
 import com.zer0spce.zerofi.platform.RouterLockController
 import com.zer0spce.zerofi.platform.SystemMonitor
@@ -41,6 +42,7 @@ data class ZeroFiSettingsState(
     val keepScreenOn: Boolean,
     val autoLaunchOnBoot: Boolean,
     val immersiveMode: Boolean,
+    val dedicatedBatterySaver: Boolean,
     val hotspotSsid: String,
     val hotspotPassword: String,
     val hotspotSecurity: String,
@@ -70,6 +72,7 @@ fun ZeroFiApp() {
                 keepScreenOn = preferences.keepScreenOn,
                 autoLaunchOnBoot = preferences.autoLaunchOnBoot,
                 immersiveMode = preferences.immersiveMode,
+                dedicatedBatterySaver = preferences.dedicatedBatterySaver,
                 hotspotSsid = preferences.hotspotSsid,
                 hotspotPassword = preferences.hotspotPassword,
                 hotspotSecurity = preferences.hotspotSecurity,
@@ -81,7 +84,7 @@ fun ZeroFiApp() {
     val phonePermissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission(),
     ) {
-        // The polling loop will refresh the dashboard immediately after returning.
+        // The polling loop refreshes after returning.
     }
 
     DisposableEffect(Unit) {
@@ -90,6 +93,12 @@ fun ZeroFiApp() {
             detectedBand = band
         }
         onDispose { tetheringWatcher.stop() }
+    }
+
+    LaunchedEffect(Unit) {
+        if (settings.dedicatedBatterySaver && DedicatedModeController.isSupported(context)) {
+            DedicatedModeController.setUserAppsSuspended(context, true)
+        }
     }
 
     LaunchedEffect(settings.cycleResetDay) {
@@ -147,7 +156,7 @@ fun ZeroFiApp() {
                         hotspotSecurity = preferences.hotspotSecurity,
                         preferredBand = preferences.preferredBand,
                     )
-                    Toast.makeText(context, "Hotspot profile saved", Toast.LENGTH_SHORT).show()
+                    Toast.makeText(context, "Connection card saved", Toast.LENGTH_SHORT).show()
                 },
             )
 
@@ -196,6 +205,7 @@ fun ZeroFiApp() {
                 settings = settings,
                 deviceOwner = RouterLockController.isDeviceOwner(context),
                 lockRunning = lockRunning,
+                dedicatedModeSupported = DedicatedModeController.isSupported(context),
                 onBack = { screen = AppScreen.DASHBOARD },
                 onAutoLaunchChanged = { enabled ->
                     preferences.autoLaunchOnBoot = enabled
@@ -206,14 +216,18 @@ fun ZeroFiApp() {
                     if (host == null) {
                         Toast.makeText(context, "Router Lock unavailable", Toast.LENGTH_SHORT).show()
                     } else {
-                        val result = if (lockRunning) {
-                            RouterLockController.stop(host)
-                        } else {
-                            RouterLockController.start(host)
-                        }
+                        val result = if (lockRunning) RouterLockController.stop(host) else RouterLockController.start(host)
                         lockRunning = RouterLockController.isLockTaskRunning(context)
                         Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
                     }
+                },
+                onDedicatedBatterySaverChanged = { enabled ->
+                    val result = DedicatedModeController.setUserAppsSuspended(context, enabled)
+                    if (result.success) {
+                        preferences.dedicatedBatterySaver = enabled
+                        settings = settings.copy(dedicatedBatterySaver = enabled)
+                    }
+                    Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
                 },
                 onOpenAppSettings = { RouterController.openAppSettings(context) },
             )
