@@ -38,7 +38,7 @@
             android:configChanges="keyboardHidden|orientation|screenSize"
             android:exported="true"
             android:lockTaskMode="if_whitelisted"
-            android:screenOrientation="landscape">
+            android:screenOrientation="unspecified">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
