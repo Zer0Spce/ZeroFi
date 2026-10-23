@@ -15,6 +15,7 @@ object RouterController {
     private const val ACTION_TETHER_SETTINGS = "android.settings.TETHER_SETTINGS"
     private const val ACTION_WIFI_TETHER_SETTINGS = "com.android.settings.WIFI_TETHER_SETTINGS"
     private const val ACTION_SIM_SETTINGS = "android.settings.SIM_SETTINGS"
+    private const val ACTION_PRIVATE_DNS_SETTINGS = "android.settings.PRIVATE_DNS_SETTINGS"
 
     fun openHotspotSettings(context: Context) {
         launchSettings(context, Intent(ACTION_WIFI_TETHER_SETTINGS), Intent(ACTION_TETHER_SETTINGS))
@@ -49,7 +50,7 @@ object RouterController {
     }
 
     fun openPrivateDnsSettings(context: Context) {
-        launchSettings(context, Intent(Settings.ACTION_PRIVATE_DNS_SETTINGS), Intent(Settings.ACTION_WIRELESS_SETTINGS))
+        launchSettings(context, Intent(ACTION_PRIVATE_DNS_SETTINGS), Intent(Settings.ACTION_WIRELESS_SETTINGS))
     }
 
     fun openBatteryOptimizationSettings(context: Context) {
