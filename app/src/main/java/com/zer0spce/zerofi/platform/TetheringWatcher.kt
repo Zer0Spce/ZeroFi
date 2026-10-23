@@ -3,24 +3,32 @@ package com.zer0spce.zerofi.platform
 import android.content.Context
 import android.os.Build
 
+data class TetheringStatus(
+    val active: Boolean? = null,
+    val band: String? = null,
+    val ssid: String? = null,
+    val password: String? = null,
+    val security: String? = null,
+)
+
 internal interface TetheringWatcherDelegate {
-    fun start(onStatus: (active: Boolean?, band: String?) -> Unit)
+    fun start(onStatus: (TetheringStatus) -> Unit)
     fun stop()
 }
 
 /**
  * API-safe tethering status facade.
  *
- * Important: this class contains no direct reference to API-36 framework types
- * or to Api36TetheringWatcher in its field/method signatures. Older Android
- * releases can therefore load it without resolving newer tethering classes.
+ * Framework API-36 types stay isolated inside Api36TetheringWatcher. The public
+ * callback only contains primitives/Strings so older Android releases can load
+ * this class safely.
  */
 class TetheringWatcher(private val context: Context) {
     private var delegate: TetheringWatcherDelegate? = null
 
-    fun start(onStatus: (active: Boolean?, band: String?) -> Unit) {
+    fun start(onStatus: (TetheringStatus) -> Unit) {
         if (Build.VERSION.SDK_INT < 36) {
-            onStatus(null, null)
+            onStatus(TetheringStatus())
             return
         }
 
@@ -33,7 +41,7 @@ class TetheringWatcher(private val context: Context) {
             watcher.start(onStatus)
         }.onFailure {
             delegate = null
-            onStatus(null, null)
+            onStatus(TetheringStatus())
         }
     }
 
