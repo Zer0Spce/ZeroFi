@@ -11,10 +11,12 @@ import android.provider.Settings
 import com.zer0spce.zerofi.admin.ZeroFiDeviceAdminReceiver
 
 object RouterController {
+    private const val ACTION_TETHER_SETTINGS = "android.settings.TETHER_SETTINGS"
+
     fun openHotspotSettings(context: Context) {
         launchSettings(
             context,
-            Intent(Settings.ACTION_TETHER_SETTINGS),
+            Intent(ACTION_TETHER_SETTINGS),
             Intent(Settings.ACTION_WIRELESS_SETTINGS),
         )
     }
