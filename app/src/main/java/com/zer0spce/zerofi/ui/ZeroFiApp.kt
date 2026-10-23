@@ -43,10 +43,13 @@ fun ZeroFiApp() {
     val preferences = remember { AppPreferences(context) }
     val monitor = remember { runCatching { SystemMonitor(context) }.getOrNull() }
     val tetheringWatcher = remember { runCatching { TetheringWatcher(context) }.getOrNull() }
+
     var screen by remember { mutableStateOf(AppScreen.DASHBOARD) }
     var snapshot by remember { mutableStateOf(SystemSnapshot()) }
     var hotspotActive by remember { mutableStateOf<Boolean?>(null) }
     var detectedBand by remember { mutableStateOf<String?>(null) }
+    var liveHotspotSsid by remember { mutableStateOf<String?>(null) }
+    var liveHotspotSecurity by remember { mutableStateOf<String?>(null) }
     var lockRunning by remember {
         mutableStateOf(runCatching { RouterLockController.isLockTaskRunning(context) }.getOrDefault(false))
     }
@@ -81,22 +84,33 @@ fun ZeroFiApp() {
             tetheringWatcher?.start { status ->
                 hotspotActive = status.active
                 detectedBand = status.band
+                liveHotspotSsid = status.ssid
+                liveHotspotSecurity = status.security
 
-                val liveSsid = status.ssid
-                if (!liveSsid.isNullOrBlank()) {
-                    preferences.hotspotSsid = liveSsid
-                    status.security?.let { preferences.hotspotSecurity = it }
-                    if (status.security.equals("nopass", true)) {
-                        preferences.hotspotPassword = ""
+                val liveSsid = status.ssid?.trim().orEmpty()
+                if (liveSsid.isNotBlank()) {
+                    val desiredSsid = preferences.hotspotSsid.trim()
+                    val openNetwork = status.security.equals("nopass", true)
+                    val exposedPassword = status.password
+
+                    if (!exposedPassword.isNullOrBlank()) {
+                        preferences.hotspotSsid = liveSsid
+                        preferences.hotspotPassword = exposedPassword
+                        status.security?.let { preferences.hotspotSecurity = it }
+                        preferences.hotspotProfileConfirmed = true
+                    } else if (liveSsid == desiredSsid) {
+                        status.security?.let { preferences.hotspotSecurity = it }
+                        val savedPasswordLooksValid = preferences.hotspotPassword.length in 8..63
+                        preferences.hotspotProfileConfirmed = openNetwork || savedPasswordLooksValid
                     } else {
-                        status.password?.let { preferences.hotspotPassword = it }
+                        preferences.hotspotProfileConfirmed = false
                     }
-                    preferences.hotspotProfileConfirmed = true
+
                     settings = settings.copy(
                         hotspotSsid = preferences.hotspotSsid,
                         hotspotPassword = preferences.hotspotPassword,
                         hotspotSecurity = preferences.hotspotSecurity,
-                        hotspotProfileConfirmed = true,
+                        hotspotProfileConfirmed = preferences.hotspotProfileConfirmed,
                     )
                 }
             }
@@ -135,6 +149,68 @@ fun ZeroFiApp() {
         Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
     }
 
+    fun applyHotspotProfile(ssid: String, password: String, security: String, band: String) {
+        val cleanSsid = ssid.trim().take(32)
+        val openNetwork = security.equals("nopass", true)
+        if (cleanSsid.isBlank()) {
+            Toast.makeText(context, "Enter a hotspot name first", Toast.LENGTH_SHORT).show()
+            return
+        }
+        if (!openNetwork && password.length !in 8..63) {
+            Toast.makeText(context, "Hotspot password must be 8–63 characters", Toast.LENGTH_LONG).show()
+            return
+        }
+
+        preferences.hotspotSsid = cleanSsid
+        preferences.hotspotPassword = if (openNetwork) "" else password
+        preferences.hotspotSecurity = security
+        preferences.preferredBand = band
+        preferences.hotspotProfileConfirmed = false
+        settings = settings.copy(
+            hotspotSsid = preferences.hotspotSsid,
+            hotspotPassword = preferences.hotspotPassword,
+            hotspotSecurity = preferences.hotspotSecurity,
+            preferredBand = preferences.preferredBand,
+            hotspotProfileConfirmed = false,
+        )
+
+        val host = activity
+        if (!HotspotAutomationService.isEnabled(context)) {
+            if (host != null) {
+                HotspotLaunchController.resetSetupPrompt(host)
+                HotspotLaunchController.ensureConfiguredOrRun(host)
+                Toast.makeText(
+                    context,
+                    "Enable ZeroFi Hotspot Automation, return here, then tap Apply again.",
+                    Toast.LENGTH_LONG,
+                ).show()
+            } else {
+                RouterController.openHotspotSettings(context)
+            }
+            return
+        }
+
+        val started = HotspotAutomationService.requestApplyHotspotProfile(
+            preferences.hotspotSsid,
+            preferences.hotspotPassword,
+            openNetwork,
+        )
+        if (started) {
+            Toast.makeText(
+                context,
+                "Applying the real Android hotspot name and password…",
+                Toast.LENGTH_LONG,
+            ).show()
+        } else {
+            RouterController.openHotspotSettings(context)
+            Toast.makeText(
+                context,
+                "Could not automate this device. Update the hotspot values in Android Settings.",
+                Toast.LENGTH_LONG,
+            ).show()
+        }
+    }
+
     ZeroFiTheme(settings.accentTheme, settings.darkMode, settings.oledSaver) {
         Box(Modifier.fillMaxSize()) {
             when (screen) {
@@ -166,27 +242,18 @@ fun ZeroFiApp() {
                 AppScreen.HOTSPOT -> HotspotScreen(
                     active = hotspotActive,
                     detectedBand = detectedBand,
+                    liveSsid = liveHotspotSsid,
+                    liveSecurity = liveHotspotSecurity,
                     ssid = settings.hotspotSsid,
                     password = settings.hotspotPassword,
                     security = settings.hotspotSecurity,
                     preferredBand = settings.preferredBand,
                     profileConfirmed = settings.hotspotProfileConfirmed,
+                    automationReady = HotspotAutomationService.isEnabled(context),
                     onBack = { screen = AppScreen.DASHBOARD },
                     onOpenSystemHotspot = { RouterController.openHotspotSettings(context) },
-                ) { ssid, password, security, band ->
-                    preferences.hotspotSsid = ssid
-                    preferences.hotspotPassword = password
-                    preferences.hotspotSecurity = security
-                    preferences.preferredBand = band
-                    preferences.hotspotProfileConfirmed = true
-                    settings = settings.copy(
-                        hotspotSsid = preferences.hotspotSsid,
-                        hotspotPassword = preferences.hotspotPassword,
-                        hotspotSecurity = preferences.hotspotSecurity,
-                        preferredBand = preferences.preferredBand,
-                        hotspotProfileConfirmed = true,
-                    )
-                }
+                    onApplyProfile = ::applyHotspotProfile,
+                )
 
                 AppScreen.DEVICES -> DevicesScreen(
                     hotspotActive,
