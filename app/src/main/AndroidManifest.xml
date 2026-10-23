@@ -18,9 +18,12 @@
         android:name="android.permission.PACKAGE_USAGE_STATS"
         tools:ignore="ProtectedPermissions" />
     <uses-permission android:name="android.permission.RECEIVE_BOOT_COMPLETED" />
-    <!-- Dedicated Battery Saver is a device-management feature. Android 11+
-         filters installed-app queries unless this normal permission is present. -->
-    <uses-permission android:name="android.permission.QUERY_ALL_PACKAGES" />
+    <!-- Dedicated Battery Saver is a device-management feature. It must enumerate
+         ordinary user-installed packages so a Device Owner can suspend and later
+         restore them as one reversible router-battery-saver action. -->
+    <uses-permission
+        android:name="android.permission.QUERY_ALL_PACKAGES"
+        tools:ignore="QueryAllPackagesPermission" />
 
     <application
         android:allowBackup="true"
