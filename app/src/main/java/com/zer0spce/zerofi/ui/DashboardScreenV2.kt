@@ -69,6 +69,7 @@ fun DashboardScreenV2(
                 .padding(start = if (portrait) 12.dp else 16.dp, end = if (portrait) 12.dp else 16.dp, top = 8.dp, bottom = 8.dp)
         ) {
             HomeHeader(
+                snapshot,
                 darkMode,
                 lockRunning,
                 { onNavigate(AppScreen.SETTINGS) },
@@ -96,6 +97,7 @@ fun DashboardScreenV2(
 
 @Composable
 private fun HomeHeader(
+    snapshot: SystemSnapshot,
     darkMode: Boolean,
     locked: Boolean,
     onMenu: () -> Unit,
@@ -107,7 +109,11 @@ private fun HomeHeader(
         HomeHeaderIcon(Icons.Rounded.Menu, "Menu", onMenu, Modifier.align(Alignment.CenterStart))
         Column(horizontalAlignment = Alignment.CenterHorizontally) {
             Text("ZeroFi", color = MaterialTheme.colorScheme.onBackground, fontSize = 16.sp, fontWeight = FontWeight.ExtraBold)
-            Text("Mobile Wi-Fi", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 7.sp)
+            val batteryStatus = buildString {
+                snapshot.batteryPercent?.let { append("$it% · ") }
+                append(snapshot.batteryTimeRemainingText)
+            }
+            Text(batteryStatus, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 7.sp, maxLines = 1)
         }
         Row(
             Modifier.align(Alignment.CenterEnd),
