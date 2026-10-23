@@ -38,6 +38,9 @@ fun RouterSettingsV2(
     onOledSaverChanged: (Boolean) -> Unit,
     onAutoOledChanged: (Boolean) -> Unit,
     onAutomationClick: () -> Unit,
+    onStartupAutomationChanged: (Boolean) -> Unit,
+    onRunStartupAutomation: () -> Unit,
+    onRouterNotificationChanged: (Boolean) -> Unit,
     onAutoOffChanged: (Int) -> Unit,
     onKeepWhileChargingChanged: (Boolean) -> Unit,
     onDataAlertsChanged: (Boolean) -> Unit,
@@ -47,6 +50,8 @@ fun RouterSettingsV2(
     onOpenAppSettings: () -> Unit,
     onControlCenter: () -> Unit,
     onAutomationRules: () -> Unit,
+    onCellularDiagnostics: () -> Unit,
+    onInternetHealth: () -> Unit,
     onSignalHistory: () -> Unit,
     onSpeedTest: () -> Unit,
     onNetworkTools: () -> Unit,
@@ -66,7 +71,7 @@ fun RouterSettingsV2(
             Spacer(Modifier.width(10.dp))
             Column {
                 Text("Router settings", color = MaterialTheme.colorScheme.onBackground, fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
-                Text("ZeroFi 1.1 appliance controls", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp)
+                Text("ZeroFi 1.2 appliance controls", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 9.sp)
             }
         }
         Spacer(Modifier.height(10.dp))
@@ -104,8 +109,19 @@ fun RouterSettingsV2(
                 Spacer(Modifier.height(6.dp))
                 val automationOn = settings.hotspotAutomationEnabled && automationConfigured
                 SettingsAction(if (automationOn) "Hotspot automation: ON" else "Set up hotspot automation", Icons.Rounded.Settings, onAutomationClick)
+                Spacer(Modifier.height(6.dp))
+                SettingsSwitch(
+                    "Prepare router when ZeroFi opens",
+                    "Wi-Fi off → mobile data on → hotspot on",
+                    settings.startupRouterAutomationEnabled,
+                    enabled = automationOn,
+                    onChecked = onStartupAutomationChanged,
+                )
+                if (automationOn) {
+                    Spacer(Modifier.height(6.dp)); SettingsAction("Run startup sequence now", Icons.Rounded.PlayArrow, onRunStartupAutomation)
+                }
                 Spacer(Modifier.height(9.dp))
-                Text(if (settings.autoOffMinutes == 0) "Auto-off: Disabled" else "Auto-off after no clients: ${settings.autoOffMinutes} min", fontWeight = FontWeight.SemiBold, fontSize = 10.sp)
+                Text(if (settings.autoOffMinutes == 0) "Auto-off: Disabled" else "Auto-off after no clients: ${settings.autoOffMinutes} min", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 10.sp)
                 Slider(autoOff, {
                     autoOff = it
                     val value = when (it.roundToInt()) { 0 -> 0; in 1..7 -> 5; in 8..19 -> 10; in 20..44 -> 30; else -> 60 }
@@ -118,22 +134,30 @@ fun RouterSettingsV2(
             }
 
             SettingsCard {
+                SettingsLabel("ROUTER STATUS")
+                Spacer(Modifier.height(6.dp))
+                SettingsSwitch("Persistent router notification", "Hotspot, network, clients, battery and data status", settings.routerNotificationEnabled, onChecked = onRouterNotificationChanged)
+                SettingsStatus("Notification permission", if (notificationsGranted) "Granted" else "Not granted")
+                if (!notificationsGranted) { Spacer(Modifier.height(6.dp)); SettingsAction("Allow router notifications", Icons.Rounded.Notifications, onRequestNotifications) }
+                Spacer(Modifier.height(6.dp))
+                Text("A ZeroFi Quick Settings tile is included. Add it from Android's Edit tiles screen for one-tap hotspot control.", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 8.sp, lineHeight = 11.sp)
+            }
+
+            SettingsCard {
                 SettingsLabel("ALERTS & THERMALS")
                 Spacer(Modifier.height(6.dp))
                 SettingsSwitch("Data alerts", "Notify at 50%, 75%, 90% and 100% of allowance", settings.dataAlertsEnabled, onChecked = onDataAlertsChanged)
                 SettingsSwitch("Temperature alerts", "Warn when battery temperature gets too high", settings.thermalAlertsEnabled, onChecked = onThermalAlertsChanged)
-                Text("Temperature warning: ${temp.roundToInt()}°C", fontWeight = FontWeight.SemiBold, fontSize = 10.sp)
+                Text("Temperature warning: ${temp.roundToInt()}°C", color = MaterialTheme.colorScheme.onSurface, fontWeight = FontWeight.SemiBold, fontSize = 10.sp)
                 Slider(temp, { temp = it; onThermalThresholdChanged(it) }, valueRange = 35f..50f, steps = 14)
-                SettingsStatus("Notification permission", if (notificationsGranted) "Granted" else "Not granted")
-                if (!notificationsGranted) {
-                    Spacer(Modifier.height(6.dp)); SettingsAction("Allow router notifications", Icons.Rounded.Notifications, onRequestNotifications)
-                }
             }
 
             SettingsCard {
                 SettingsLabel("ROUTER TOOLS")
                 Spacer(Modifier.height(6.dp))
                 SettingsAction("Router Control Center", Icons.Rounded.Dashboard, onControlCenter)
+                Spacer(Modifier.height(7.dp)); SettingsAction("Cellular diagnostics", Icons.Rounded.NetworkCell, onCellularDiagnostics)
+                Spacer(Modifier.height(7.dp)); SettingsAction("Internet health & recovery", Icons.Rounded.Public, onInternetHealth)
                 Spacer(Modifier.height(7.dp)); SettingsAction("Signal history", Icons.Rounded.SignalCellularAlt, onSignalHistory)
                 Spacer(Modifier.height(7.dp)); SettingsAction("Speed test & history", Icons.Rounded.Speed, onSpeedTest)
                 Spacer(Modifier.height(7.dp)); SettingsAction("Network tools", Icons.Rounded.SettingsEthernet, onNetworkTools)
