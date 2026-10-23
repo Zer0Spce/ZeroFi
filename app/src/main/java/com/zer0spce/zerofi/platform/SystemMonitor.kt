@@ -10,14 +10,14 @@ import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
 import android.os.BatteryManager
+import android.os.Build
 import android.os.Process
 import android.os.SystemClock
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
-import java.time.Duration
-import java.time.ZonedDateTime
+import java.util.Calendar
 
 
 data class SystemSnapshot(
@@ -78,14 +78,30 @@ class SystemMonitor(private val context: Context) {
             ?: "Mobile network"
 
         val networkType = if (phonePermission) {
-            runCatching { networkTypeLabel(telephony.dataNetworkType) }.getOrDefault("—")
+            val rawType = runCatching {
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
+                    telephony.dataNetworkType
+                } else {
+                    @Suppress("DEPRECATION")
+                    telephony.networkType
+                }
+            }.getOrDefault(TelephonyManager.NETWORK_TYPE_UNKNOWN)
+            networkTypeLabel(rawType)
         } else {
             "Permission needed"
         }
 
-        val signalStrength = runCatching { telephony.signalStrength }.getOrNull()
+        val signalStrength = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            runCatching { telephony.signalStrength }.getOrNull()
+        } else {
+            null
+        }
         val signalLevel = signalStrength?.level?.coerceIn(0, 4)
-        val signalDbm = signalStrength?.cellSignalStrengths?.firstOrNull()?.dbm
+        val signalDbm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            signalStrength?.cellSignalStrengths?.firstOrNull()?.dbm
+        } else {
+            null
+        }
 
         val usageAccess = hasUsageAccess()
         if (usageAccess) {
@@ -135,7 +151,7 @@ class SystemMonitor(private val context: Context) {
         cachedMonthBytes = queryMobileBytes(manager, cycleStartMillis(resetDay), now)
         cachedThreeDayBytes = queryMobileBytes(
             manager,
-            now - Duration.ofDays(3).toMillis(),
+            now - THREE_DAYS_MS,
             now,
         )
     }
@@ -157,10 +173,16 @@ class SystemMonitor(private val context: Context) {
 
     private fun cycleStartMillis(resetDay: Int): Long {
         val day = resetDay.coerceIn(1, 28)
-        val now = ZonedDateTime.now()
-        var start = now.withDayOfMonth(day).toLocalDate().atStartOfDay(now.zone)
-        if (start.isAfter(now)) start = start.minusMonths(1)
-        return start.toInstant().toEpochMilli()
+        val calendar = Calendar.getInstance()
+        if (calendar.get(Calendar.DAY_OF_MONTH) < day) {
+            calendar.add(Calendar.MONTH, -1)
+        }
+        calendar.set(Calendar.DAY_OF_MONTH, day)
+        calendar.set(Calendar.HOUR_OF_DAY, 0)
+        calendar.set(Calendar.MINUTE, 0)
+        calendar.set(Calendar.SECOND, 0)
+        calendar.set(Calendar.MILLISECOND, 0)
+        return calendar.timeInMillis
     }
 
     private fun networkTypeLabel(type: Int): String = when (type) {
@@ -193,5 +215,6 @@ class SystemMonitor(private val context: Context) {
 
     companion object {
         private const val USAGE_CACHE_MS = 60_000L
+        private const val THREE_DAYS_MS = 3L * 24L * 60L * 60L * 1000L
     }
 }
