@@ -30,7 +30,37 @@ jobs:
         with:
           gradle-version: '9.6.0'
 
+      - name: Restore ZeroFi update signing key
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        uses: actions/cache@v4
+        with:
+          path: ~/.android/zerofi-update.keystore
+          key: zerofi-update-signing-v1
+
+      - name: Ensure ZeroFi update signing key
+        if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+        shell: bash
+        run: |
+          mkdir -p "$HOME/.android"
+          if [ ! -f "$HOME/.android/zerofi-update.keystore" ]; then
+            keytool -genkeypair \
+              -keystore "$HOME/.android/zerofi-update.keystore" \
+              -storepass android \
+              -keypass android \
+              -alias zerofi \
+              -keyalg RSA \
+              -keysize 3072 \
+              -validity 10000 \
+              -dname "CN=ZeroFi Update, OU=ZeroSpace, O=Zer0Spce, C=PH"
+          fi
+          keytool -list -keystore "$HOME/.android/zerofi-update.keystore" -storepass android -alias zerofi
+
       - name: Build debug APK
+        env:
+          ZEROFI_SIGNING_STORE_FILE: /home/runner/.android/zerofi-update.keystore
+          ZEROFI_SIGNING_STORE_PASSWORD: android
+          ZEROFI_SIGNING_KEY_ALIAS: zerofi
+          ZEROFI_SIGNING_KEY_PASSWORD: android
         run: gradle :app:assembleDebug --stacktrace
 
       - name: Android lint
