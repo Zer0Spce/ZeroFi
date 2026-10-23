@@ -19,6 +19,7 @@ import com.zer0spce.zerofi.ui.theme.ZeroFiTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.withContext
+import kotlin.math.roundToInt
 
 enum class AppScreen {
     DASHBOARD, HOTSPOT, DEVICES, DATA, DISPLAY, SETTINGS, DIAGNOSTICS, STANDBY,
@@ -294,11 +295,21 @@ fun ZeroFiApp() {
                     lockRunning, ::toggleLock,
                 )
 
-                AppScreen.HOTSPOT -> HotspotScreen(
-                    hotspotActive, detectedBand, liveHotspotSsid, liveHotspotSecurity,
-                    settings.hotspotSsid, settings.hotspotPassword, settings.hotspotSecurity, settings.preferredBand,
-                    settings.hotspotProfileConfirmed, HotspotAutomationService.isEnabled(context),
-                    { screen = AppScreen.DASHBOARD }, { RouterController.openHotspotSettings(context) }, ::applyHotspotProfile,
+                AppScreen.HOTSPOT -> HotspotScreenV2(
+                    active = hotspotActive,
+                    detectedBand = detectedBand,
+                    liveSsid = liveHotspotSsid,
+                    liveSecurity = liveHotspotSecurity,
+                    ssid = settings.hotspotSsid,
+                    password = settings.hotspotPassword,
+                    security = settings.hotspotSecurity,
+                    preferredBand = settings.preferredBand,
+                    profileConfirmed = settings.hotspotProfileConfirmed,
+                    automationReady = HotspotAutomationService.isEnabled(context),
+                    onBack = { screen = AppScreen.DASHBOARD },
+                    onToggleHotspot = ::toggleHotspotPower,
+                    onOpenSystemHotspot = { RouterController.openHotspotSettings(context) },
+                    onApplyProfile = ::applyHotspotProfile,
                 )
 
                 AppScreen.DEVICES -> ClientManagementScreen(
@@ -335,7 +346,12 @@ fun ZeroFiApp() {
                 )
 
                 AppScreen.SETTINGS -> RouterSettingsV2(
-                    settings, RouterLockController.isDeviceOwner(context), lockRunning, DedicatedModeController.isSupported(context), HotspotAutomationService.isEnabled(context), RouterAlertNotifier.notificationsGranted(context),
+                    settings,
+                    RouterLockController.isDeviceOwner(context),
+                    lockRunning,
+                    DedicatedModeController.isSupported(context),
+                    HotspotAutomationService.isEnabled(context),
+                    RouterAlertNotifier.notificationsGranted(context),
                     { screen = AppScreen.DASHBOARD },
                     { preferences.autoLaunchOnBoot = it; settings = settings.copy(autoLaunchOnBoot = it) },
                     { preferences.restoreRouterLock = it; settings = settings.copy(restoreRouterLock = it) },
@@ -355,28 +371,57 @@ fun ZeroFiApp() {
                     { preferences.thermalThresholdC = it; settings = settings.copy(thermalThresholdC = it) },
                     { if (Build.VERSION.SDK_INT >= 33) notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS) },
                     { RouterController.openAppSettings(context) },
-                    { screen = AppScreen.CONTROL_CENTER }, { screen = AppScreen.SIGNAL_HISTORY }, { screen = AppScreen.SPEED_TEST }, { screen = AppScreen.NETWORK_TOOLS }, { screen = AppScreen.BACKUP_RESTORE }, { screen = AppScreen.DIAGNOSTICS }, { screen = AppScreen.STANDBY },
+                    { screen = AppScreen.CONTROL_CENTER },
+                    { screen = AppScreen.SIGNAL_HISTORY },
+                    { screen = AppScreen.SPEED_TEST },
+                    { screen = AppScreen.NETWORK_TOOLS },
+                    { screen = AppScreen.BACKUP_RESTORE },
+                    { screen = AppScreen.DIAGNOSTICS },
+                    { screen = AppScreen.STANDBY },
                 )
 
-                AppScreen.CONTROL_CENTER -> RouterControlCenterScreen(snapshot, featureSnapshot, hotspotActive, detectedBand ?: settings.preferredBand, clientSnapshot, settings, { screen = AppScreen.DASHBOARD }, { screen = it }, ::toggleHotspotPower)
+                AppScreen.CONTROL_CENTER -> RouterControlCenterScreen(
+                    snapshot, featureSnapshot, hotspotActive, detectedBand ?: settings.preferredBand,
+                    clientSnapshot, settings, { screen = AppScreen.DASHBOARD }, { screen = it }, ::toggleHotspotPower,
+                )
+
                 AppScreen.SIGNAL_HISTORY -> SignalHistoryScreen(signalHistory, { screen = AppScreen.CONTROL_CENTER })
                 AppScreen.SPEED_TEST -> SpeedTestScreen { screen = AppScreen.CONTROL_CENTER }
                 AppScreen.NETWORK_TOOLS -> NetworkToolsScreen(
-                    featureSnapshot, { screen = AppScreen.CONTROL_CENTER },
-                    { RouterController.openMobileNetworkSettings(context) }, { RouterController.openSimSettings(context) }, { RouterController.openApnSettings(context) }, { RouterController.openVpnSettings(context) }, { RouterController.openPrivateDnsSettings(context) }, { RouterController.openBatteryOptimizationSettings(context) },
+                    featureSnapshot,
+                    { screen = AppScreen.CONTROL_CENTER },
+                    { RouterController.openMobileNetworkSettings(context) },
+                    { RouterController.openSimSettings(context) },
+                    { RouterController.openApnSettings(context) },
+                    { RouterController.openVpnSettings(context) },
+                    { RouterController.openPrivateDnsSettings(context) },
+                    { RouterController.openBatteryOptimizationSettings(context) },
                 )
+
                 AppScreen.BACKUP_RESTORE -> BackupRestoreScreen(
                     preferences.exportJson(),
                     { raw ->
                         val ok = preferences.importJson(raw)
-                        if (ok) { settings = readSettings(preferences); activity?.setKeepScreenOn(settings.keepScreenOn); activity?.setImmersiveMode(settings.immersiveMode) }
+                        if (ok) {
+                            settings = readSettings(preferences)
+                            activity?.setKeepScreenOn(settings.keepScreenOn)
+                            activity?.setImmersiveMode(settings.immersiveMode)
+                        }
                         ok
                     },
                     { RouterController.shareText(context, "ZeroFi backup", it) },
                     { screen = AppScreen.SETTINGS },
                 )
-                AppScreen.DIAGNOSTICS -> DiagnosticsScreenV2(snapshot, featureSnapshot, hotspotActive, clientSnapshot, detectedBand ?: settings.preferredBand) { screen = AppScreen.CONTROL_CENTER }
-                AppScreen.STANDBY -> StandbyScreenV2(snapshot, hotspotActive, clientSnapshot, snapshot.monthBytes, settings.dataLimitGb, settings.oledSaver || settings.autoOledOnStandby) { screen = AppScreen.DASHBOARD }
+
+                AppScreen.DIAGNOSTICS -> DiagnosticsScreenV2(
+                    snapshot, featureSnapshot, hotspotActive, clientSnapshot,
+                    detectedBand ?: settings.preferredBand,
+                ) { screen = AppScreen.CONTROL_CENTER }
+
+                AppScreen.STANDBY -> StandbyScreenV2(
+                    snapshot, hotspotActive, clientSnapshot, snapshot.monthBytes,
+                    settings.dataLimitGb, settings.oledSaver || settings.autoOledOnStandby,
+                ) { screen = AppScreen.DASHBOARD }
             }
         }
     }
