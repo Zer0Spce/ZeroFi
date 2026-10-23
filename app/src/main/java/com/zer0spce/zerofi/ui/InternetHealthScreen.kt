@@ -15,6 +15,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.platform.LocalLocale
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
@@ -22,7 +23,6 @@ import com.zer0spce.zerofi.platform.InternetHealthSnapshot
 import com.zer0spce.zerofi.platform.SystemSnapshot
 import java.text.SimpleDateFormat
 import java.util.Date
-import java.util.Locale
 
 @Composable
 fun InternetHealthScreen(
@@ -35,6 +35,13 @@ fun InternetHealthScreen(
     onRecover: () -> Unit,
     onOpenMobileSettings: () -> Unit,
 ) {
+    val locale = LocalLocale.current.platformLocale
+    val checkedText = if (health.checkedAt > 0) {
+        "Last checked ${SimpleDateFormat("HH:mm:ss", locale).format(Date(health.checkedAt))}"
+    } else {
+        "Run a check to measure the current Internet path"
+    }
+
     Column(
         Modifier.fillMaxSize().background(MaterialTheme.colorScheme.background)
             .windowInsetsPadding(WindowInsets.safeDrawing.only(WindowInsetsSides.Top))
@@ -56,7 +63,7 @@ fun InternetHealthScreen(
                     Spacer(Modifier.width(9.dp))
                     Column(Modifier.weight(1f)) {
                         Text(if (checking) "Checking…" else health.summary, color = MaterialTheme.colorScheme.onSurface, fontSize = 18.sp, fontWeight = FontWeight.ExtraBold)
-                        Text(if (health.checkedAt > 0) "Last checked ${SimpleDateFormat("HH:mm:ss", Locale.getDefault()).format(Date(health.checkedAt))}" else "Run a check to measure the current Internet path", color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 8.sp)
+                        Text(checkedText, color = MaterialTheme.colorScheme.onSurfaceVariant, fontSize = 8.sp)
                     }
                 }
             }
