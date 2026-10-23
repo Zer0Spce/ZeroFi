@@ -48,7 +48,12 @@ class SystemMonitor(private val context: Context) {
     private var lastUsageResetDay = -1
     private var cachedMonthBytes: Long? = null
     private var cachedThreeDayBytes: Long? = null
+
     private var smoothedDischargeUa: Double? = null
+    private var drainSamplePercent: Int? = null
+    private var drainSampleAt = 0L
+    private var smoothedPercentPerHour: Double? = null
+
     private var lastTrafficAt = 0L
     private var lastMobileRx = -1L
     private var lastMobileTx = -1L
@@ -76,7 +81,11 @@ class SystemMonitor(private val context: Context) {
         val batteryStatus = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
         val charging = batteryStatus == BatteryManager.BATTERY_STATUS_CHARGING ||
             batteryStatus == BatteryManager.BATTERY_STATUS_FULL
-        val batteryTimeRemaining = estimateBatteryTimeRemaining(batteryManager, charging)
+        val batteryTimeRemaining = estimateBatteryTimeRemaining(
+            batteryManager = batteryManager,
+            charging = charging,
+            batteryPercent = batteryPercent,
+        )
 
         val activeNetwork = connectivity.activeNetwork
         val caps = activeNetwork?.let(connectivity::getNetworkCapabilities)
@@ -172,31 +181,100 @@ class SystemMonitor(private val context: Context) {
     private fun estimateBatteryTimeRemaining(
         batteryManager: BatteryManager,
         charging: Boolean,
+        batteryPercent: Int?,
     ): String {
         if (charging) {
-            smoothedDischargeUa = null
+            resetBatteryEstimate()
             return "Charging"
         }
 
+        updatePercentDrainEstimate(batteryPercent)
+
+        // Preferred estimate: remaining charge divided by measured discharge
+        // current. These public BatteryManager properties exist on our API 23
+        // floor, but some OEMs return unsupported/meaningless values.
         val chargeCounter = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
         val averageCurrent = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
         val currentNow = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
-        if (chargeCounter <= 0 || chargeCounter == Int.MIN_VALUE) return "Calculating…"
 
-        val rawCurrent = when {
-            averageCurrent != Int.MIN_VALUE && abs(averageCurrent) >= MIN_USEFUL_CURRENT_UA -> abs(averageCurrent).toDouble()
-            currentNow != Int.MIN_VALUE && abs(currentNow) >= MIN_USEFUL_CURRENT_UA -> abs(currentNow).toDouble()
-            else -> return "Calculating…"
+        if (chargeCounter > 0 && chargeCounter != Int.MIN_VALUE) {
+            val rawCurrent = when {
+                averageCurrent != Int.MIN_VALUE && abs(averageCurrent) >= MIN_USEFUL_CURRENT_UA ->
+                    abs(averageCurrent).toDouble()
+                currentNow != Int.MIN_VALUE && abs(currentNow) >= MIN_USEFUL_CURRENT_UA ->
+                    abs(currentNow).toDouble()
+                else -> null
+            }
+
+            if (rawCurrent != null) {
+                val smoothed = smoothedDischargeUa?.let { previous ->
+                    previous * 0.75 + rawCurrent * 0.25
+                } ?: rawCurrent
+                smoothedDischargeUa = smoothed
+
+                val hardwareHours = chargeCounter.toDouble() / smoothed
+                if (hardwareHours.isFinite() && hardwareHours in MIN_ESTIMATE_HOURS..MAX_ESTIMATE_HOURS) {
+                    return formatRemainingHours(hardwareHours)
+                }
+            }
         }
 
-        val smoothed = smoothedDischargeUa?.let { previous ->
-            previous * 0.75 + rawCurrent * 0.25
-        } ?: rawCurrent
-        smoothedDischargeUa = smoothed
+        // Fallback for phones that don't report current/charge properties:
+        // learn from real percentage drops while ZeroFi is running.
+        val percentRate = smoothedPercentPerHour
+        val percent = batteryPercent
+        if (percentRate != null && percent != null && percentRate > 0.0) {
+            val learnedHours = percent / percentRate
+            if (learnedHours.isFinite() && learnedHours in MIN_ESTIMATE_HOURS..MAX_ESTIMATE_HOURS) {
+                return formatRemainingHours(learnedHours)
+            }
+        }
 
-        val hours = chargeCounter.toDouble() / smoothed
-        if (!hours.isFinite() || hours < 0.08 || hours > 96.0) return "Calculating…"
-        return formatRemainingHours(hours)
+        return "Calculating…"
+    }
+
+    private fun updatePercentDrainEstimate(batteryPercent: Int?) {
+        val percent = batteryPercent ?: return
+        val now = SystemClock.elapsedRealtime()
+        val previousPercent = drainSamplePercent
+
+        if (previousPercent == null || drainSampleAt <= 0L) {
+            drainSamplePercent = percent
+            drainSampleAt = now
+            return
+        }
+
+        if (percent > previousPercent) {
+            // A percentage increase while not marked charging usually means an
+            // OEM gauge correction. Start a fresh learning window.
+            drainSamplePercent = percent
+            drainSampleAt = now
+            smoothedPercentPerHour = null
+            return
+        }
+
+        if (percent == previousPercent) return
+
+        val elapsedMs = now - drainSampleAt
+        val drop = previousPercent - percent
+        if (drop > 0 && elapsedMs >= MIN_PERCENT_SAMPLE_MS) {
+            val rate = drop * 3_600_000.0 / elapsedMs.toDouble()
+            if (rate in MIN_PERCENT_PER_HOUR..MAX_PERCENT_PER_HOUR) {
+                smoothedPercentPerHour = smoothedPercentPerHour?.let { previous ->
+                    previous * 0.65 + rate * 0.35
+                } ?: rate
+            }
+        }
+
+        drainSamplePercent = percent
+        drainSampleAt = now
+    }
+
+    private fun resetBatteryEstimate() {
+        smoothedDischargeUa = null
+        drainSamplePercent = null
+        drainSampleAt = 0L
+        smoothedPercentPerHour = null
     }
 
     private fun formatRemainingHours(hours: Double): String {
@@ -288,5 +366,10 @@ class SystemMonitor(private val context: Context) {
         private const val USAGE_CACHE_MS = 60_000L
         private const val THREE_DAYS_MS = 3L * 24L * 60L * 60L * 1000L
         private const val MIN_USEFUL_CURRENT_UA = 5_000
+        private const val MIN_PERCENT_SAMPLE_MS = 60_000L
+        private const val MIN_PERCENT_PER_HOUR = 0.15
+        private const val MAX_PERCENT_PER_HOUR = 80.0
+        private const val MIN_ESTIMATE_HOURS = 0.08
+        private const val MAX_ESTIMATE_HOURS = 96.0
     }
 }
