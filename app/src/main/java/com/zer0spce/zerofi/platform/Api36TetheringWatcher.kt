@@ -7,11 +7,11 @@ import android.net.wifi.SoftApConfiguration
 import androidx.annotation.RequiresApi
 
 @RequiresApi(36)
-class Api36TetheringWatcher(private val context: Context) {
+class Api36TetheringWatcher(private val context: Context) : TetheringWatcherDelegate {
     private var callback: TetheringManager.TetheringEventCallback? = null
     private var manager: TetheringManager? = null
 
-    fun start(onStatus: (active: Boolean?, band: String?) -> Unit) {
+    override fun start(onStatus: (active: Boolean?, band: String?) -> Unit) {
         val tetheringManager = context.getSystemService(TetheringManager::class.java)
         val eventCallback = object : TetheringManager.TetheringEventCallback {
             override fun onTetheredInterfacesChanged(interfaces: MutableSet<TetheringInterface>) {
@@ -31,7 +31,7 @@ class Api36TetheringWatcher(private val context: Context) {
         }
     }
 
-    fun stop() {
+    override fun stop() {
         val callbackToRemove = callback ?: return
         runCatching { manager?.unregisterTetheringEventCallback(callbackToRemove) }
         callback = null
