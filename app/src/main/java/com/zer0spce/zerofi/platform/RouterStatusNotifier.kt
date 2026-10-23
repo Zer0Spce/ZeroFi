@@ -18,13 +18,7 @@ object RouterStatusNotifier {
     private const val CHANNEL_ID = "zerofi_router_status"
     private const val NOTIFICATION_ID = 2301
 
-    fun update(
-        context: Context,
-        snapshot: SystemSnapshot,
-        hotspotActive: Boolean?,
-        clients: HotspotClientSnapshot,
-        enabled: Boolean,
-    ) {
+    fun update(context: Context, snapshot: SystemSnapshot, hotspotActive: Boolean?, clients: HotspotClientSnapshot, enabled: Boolean) {
         val manager = context.getSystemService(NotificationManager::class.java)
         if (!enabled) {
             manager.cancel(NOTIFICATION_ID)
@@ -47,7 +41,8 @@ object RouterStatusNotifier {
         val title = "ZeroFi · ${snapshot.networkType} · ${if (hotspotActive == true) "Hotspot ON" else "Hotspot OFF"}"
         val text = "$clientText · $battery battery · $dataText"
 
-        val notification = Notification.Builder(context, CHANNEL_ID)
+        val builder = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) Notification.Builder(context, CHANNEL_ID) else Notification.Builder(context)
+        val notification = builder
             .setSmallIcon(android.R.drawable.stat_notify_sync_noanim)
             .setContentTitle(title)
             .setContentText(text)
@@ -57,7 +52,7 @@ object RouterStatusNotifier {
             .setOnlyAlertOnce(true)
             .setCategory(Notification.CATEGORY_STATUS)
             .setVisibility(Notification.VISIBILITY_PUBLIC)
-            .addAction(Notification.Action.Builder(null, if (hotspotActive == true) "Turn hotspot off" else "Turn hotspot on", togglePending).build())
+            .addAction(android.R.drawable.ic_menu_manage, if (hotspotActive == true) "Turn hotspot off" else "Turn hotspot on", togglePending)
             .build()
         manager.notify(NOTIFICATION_ID, notification)
     }
