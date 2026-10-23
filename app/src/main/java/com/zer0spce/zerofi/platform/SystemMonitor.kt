@@ -9,6 +9,7 @@ import android.content.IntentFilter
 import android.content.pm.PackageManager
 import android.net.ConnectivityManager
 import android.net.NetworkCapabilities
+import android.net.TrafficStats
 import android.os.BatteryManager
 import android.os.Build
 import android.os.Process
@@ -34,6 +35,8 @@ data class SystemSnapshot(
     val validatedInternet: Boolean = false,
     val monthBytes: Long? = null,
     val threeDayBytes: Long? = null,
+    val downloadBytesPerSecond: Long? = null,
+    val uploadBytesPerSecond: Long? = null,
     val usageAccessGranted: Boolean = false,
     val phonePermissionGranted: Boolean = false,
     val uptimeText: String = "—",
@@ -46,6 +49,9 @@ class SystemMonitor(private val context: Context) {
     private var cachedMonthBytes: Long? = null
     private var cachedThreeDayBytes: Long? = null
     private var smoothedDischargeUa: Double? = null
+    private var lastTrafficAt = 0L
+    private var lastMobileRx = -1L
+    private var lastMobileTx = -1L
 
     suspend fun snapshot(resetDay: Int): SystemSnapshot = withContext(Dispatchers.IO) {
         val phonePermission = ContextCompat.checkSelfPermission(
@@ -116,6 +122,8 @@ class SystemMonitor(private val context: Context) {
             cachedThreeDayBytes = null
         }
 
+        val throughput = readMobileThroughput()
+
         SystemSnapshot(
             carrierName = carrier,
             networkType = networkType,
@@ -129,10 +137,36 @@ class SystemMonitor(private val context: Context) {
             validatedInternet = validated,
             monthBytes = cachedMonthBytes,
             threeDayBytes = cachedThreeDayBytes,
+            downloadBytesPerSecond = throughput.first,
+            uploadBytesPerSecond = throughput.second,
             usageAccessGranted = usageAccess,
             phonePermissionGranted = phonePermission,
             uptimeText = formatUptime(SystemClock.elapsedRealtime()),
         )
+    }
+
+    private fun readMobileThroughput(): Pair<Long?, Long?> {
+        val now = SystemClock.elapsedRealtime()
+        val rx = TrafficStats.getMobileRxBytes()
+        val tx = TrafficStats.getMobileTxBytes()
+        if (rx == TrafficStats.UNSUPPORTED.toLong() || tx == TrafficStats.UNSUPPORTED.toLong()) {
+            return null to null
+        }
+
+        if (lastTrafficAt <= 0L || lastMobileRx < 0L || lastMobileTx < 0L || now <= lastTrafficAt) {
+            lastTrafficAt = now
+            lastMobileRx = rx
+            lastMobileTx = tx
+            return null to null
+        }
+
+        val elapsedMs = now - lastTrafficAt
+        val down = ((rx - lastMobileRx).coerceAtLeast(0L) * 1000L) / elapsedMs.coerceAtLeast(1L)
+        val up = ((tx - lastMobileTx).coerceAtLeast(0L) * 1000L) / elapsedMs.coerceAtLeast(1L)
+        lastTrafficAt = now
+        lastMobileRx = rx
+        lastMobileTx = tx
+        return down to up
     }
 
     private fun estimateBatteryTimeRemaining(
