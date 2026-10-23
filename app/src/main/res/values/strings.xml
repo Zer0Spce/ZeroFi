@@ -2,4 +2,5 @@
 <resources>
     <string name="app_name">ZeroFi</string>
     <string name="device_admin_description">Allows ZeroFi to run as a dedicated pocket Wi-Fi dashboard with Router Lock mode.</string>
+    <string name="hotspot_automation_description">Lets ZeroFi turn the Android Hotspot Quick Settings tile on automatically when the app starts. ZeroFi never blind-toggles an unknown tile state.</string>
 </resources>
