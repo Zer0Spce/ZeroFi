@@ -11,8 +11,31 @@ android {
         applicationId = "com.zer0spce.zerofi"
         minSdk = 23
         targetSdk = 37
-        versionCode = 4
-        versionName = "0.3.1"
+        versionCode = 10
+        versionName = "1.2.3"
+    }
+
+    val updateStorePath = System.getenv("ZEROFI_SIGNING_STORE_FILE")
+    val updateStoreFile = updateStorePath?.let(::file)
+    val hasUpdateSigningKey = updateStoreFile?.exists() == true
+
+    if (hasUpdateSigningKey) {
+        signingConfigs {
+            create("zerofiUpdate") {
+                storeFile = updateStoreFile
+                storePassword = System.getenv("ZEROFI_SIGNING_STORE_PASSWORD") ?: "android"
+                keyAlias = System.getenv("ZEROFI_SIGNING_KEY_ALIAS") ?: "zerofi"
+                keyPassword = System.getenv("ZEROFI_SIGNING_KEY_PASSWORD") ?: "android"
+            }
+        }
+    }
+
+    buildTypes {
+        getByName("debug") {
+            if (hasUpdateSigningKey) {
+                signingConfig = signingConfigs.getByName("zerofiUpdate")
+            }
+        }
     }
 
     buildFeatures {

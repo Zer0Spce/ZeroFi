@@ -11,12 +11,21 @@ class Api36TetheringWatcher(private val context: Context) : TetheringWatcherDele
     private var callback: TetheringManager.TetheringEventCallback? = null
     private var manager: TetheringManager? = null
 
-    override fun start(onStatus: (active: Boolean?, band: String?) -> Unit) {
+    override fun start(onStatus: (TetheringStatus) -> Unit) {
         val tetheringManager = context.getSystemService(TetheringManager::class.java)
         val eventCallback = object : TetheringManager.TetheringEventCallback {
             override fun onTetheredInterfacesChanged(interfaces: MutableSet<TetheringInterface>) {
                 val wifi = interfaces.firstOrNull { it.type == TetheringManager.TETHERING_WIFI }
-                onStatus(wifi != null, wifi?.softApConfiguration?.let(::bandLabel))
+                val config = wifi?.softApConfiguration
+                onStatus(
+                    TetheringStatus(
+                        active = wifi != null,
+                        band = config?.let(::bandLabel),
+                        ssid = config?.ssid?.takeIf { it.isNotBlank() },
+                        password = config?.passphrase,
+                        security = config?.let(::qrSecurityLabel),
+                    )
+                )
             }
         }
 
@@ -27,7 +36,7 @@ class Api36TetheringWatcher(private val context: Context) : TetheringWatcherDele
         }.onFailure {
             manager = null
             callback = null
-            onStatus(null, null)
+            onStatus(TetheringStatus())
         }
     }
 
@@ -37,6 +46,9 @@ class Api36TetheringWatcher(private val context: Context) : TetheringWatcherDele
         callback = null
         manager = null
     }
+
+    private fun qrSecurityLabel(config: SoftApConfiguration): String =
+        if (config.securityType == SoftApConfiguration.SECURITY_TYPE_OPEN) "nopass" else "WPA"
 
     private fun bandLabel(config: SoftApConfiguration): String {
         val channels = config.channels

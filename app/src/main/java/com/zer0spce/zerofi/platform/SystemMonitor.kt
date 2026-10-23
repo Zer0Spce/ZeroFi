@@ -14,6 +14,10 @@ import android.os.BatteryManager
 import android.os.Build
 import android.os.Process
 import android.os.SystemClock
+import android.telephony.CellSignalStrengthLte
+import android.telephony.CellSignalStrengthNr
+import android.telephony.PhoneStateListener
+import android.telephony.TelephonyDisplayInfo
 import android.telephony.TelephonyManager
 import androidx.core.content.ContextCompat
 import kotlinx.coroutines.Dispatchers
@@ -25,8 +29,13 @@ import kotlin.math.abs
 data class SystemSnapshot(
     val carrierName: String = "Mobile network",
     val networkType: String = "—",
+    val radioMode: String = "—",
     val signalLevel: Int? = null,
     val signalDbm: Int? = null,
+    val signalRsrp: Int? = null,
+    val signalRsrq: Int? = null,
+    val signalSinr: Int? = null,
+    val signalQuality: String = "Unavailable",
     val batteryPercent: Int? = null,
     val batteryTempC: Float? = null,
     val charging: Boolean = false,
@@ -58,75 +67,76 @@ class SystemMonitor(private val context: Context) {
     private var lastMobileRx = -1L
     private var lastMobileTx = -1L
 
+    @Volatile private var displayOverrideNetworkType = 0
+    private var displayInfoListener: PhoneStateListener? = null
+    private var displayInfoListening = false
+
     suspend fun snapshot(resetDay: Int): SystemSnapshot = withContext(Dispatchers.IO) {
-        val phonePermission = ContextCompat.checkSelfPermission(
-            appContext,
-            Manifest.permission.READ_PHONE_STATE,
-        ) == PackageManager.PERMISSION_GRANTED
+        val phonePermission = ContextCompat.checkSelfPermission(appContext, Manifest.permission.READ_PHONE_STATE) == PackageManager.PERMISSION_GRANTED
 
         val telephony = appContext.getSystemService(TelephonyManager::class.java)
         val connectivity = appContext.getSystemService(ConnectivityManager::class.java)
         val batteryManager = appContext.getSystemService(BatteryManager::class.java)
         val batteryIntent = appContext.registerReceiver(null, IntentFilter(Intent.ACTION_BATTERY_CHANGED))
 
+        ensureDisplayInfoTracking(telephony, phonePermission)
+
         val batteryLevel = batteryIntent?.getIntExtra(BatteryManager.EXTRA_LEVEL, -1) ?: -1
         val batteryScale = batteryIntent?.getIntExtra(BatteryManager.EXTRA_SCALE, 100) ?: 100
-        val batteryPercent = if (batteryLevel >= 0 && batteryScale > 0) {
-            (batteryLevel * 100f / batteryScale).toInt().coerceIn(0, 100)
-        } else {
-            null
-        }
+        val batteryPercent = if (batteryLevel >= 0 && batteryScale > 0) (batteryLevel * 100f / batteryScale).toInt().coerceIn(0, 100) else null
         val batteryTempRaw = batteryIntent?.getIntExtra(BatteryManager.EXTRA_TEMPERATURE, Int.MIN_VALUE)
         val batteryTemp = batteryTempRaw?.takeIf { it != Int.MIN_VALUE }?.div(10f)
         val batteryStatus = batteryIntent?.getIntExtra(BatteryManager.EXTRA_STATUS, -1) ?: -1
-        val charging = batteryStatus == BatteryManager.BATTERY_STATUS_CHARGING ||
-            batteryStatus == BatteryManager.BATTERY_STATUS_FULL
-        val batteryTimeRemaining = estimateBatteryTimeRemaining(
-            batteryManager = batteryManager,
-            charging = charging,
-            batteryPercent = batteryPercent,
-        )
+        val charging = batteryStatus == BatteryManager.BATTERY_STATUS_CHARGING || batteryStatus == BatteryManager.BATTERY_STATUS_FULL
+        val batteryTimeRemaining = estimateBatteryTimeRemaining(batteryManager, charging, batteryPercent)
 
         val activeNetwork = connectivity.activeNetwork
         val caps = activeNetwork?.let(connectivity::getNetworkCapabilities)
         val cellularDefault = caps?.hasTransport(NetworkCapabilities.TRANSPORT_CELLULAR) == true
         val validated = caps?.hasCapability(NetworkCapabilities.NET_CAPABILITY_VALIDATED) == true
 
-        val carrier = runCatching { telephony.networkOperatorName }
-            .getOrNull()
-            ?.takeIf { it.isNotBlank() }
-            ?: "Mobile network"
+        val carrier = runCatching { telephony.networkOperatorName }.getOrNull()?.takeIf { it.isNotBlank() } ?: "Mobile network"
+        val rawType = if (phonePermission) runCatching {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) telephony.dataNetworkType else {
+                @Suppress("DEPRECATION")
+                telephony.networkType
+            }
+        }.getOrDefault(TelephonyManager.NETWORK_TYPE_UNKNOWN) else TelephonyManager.NETWORK_TYPE_UNKNOWN
+        val networkType = if (phonePermission) networkTypeLabel(rawType, displayOverrideNetworkType) else "Permission needed"
 
-        val networkType = if (phonePermission) {
-            val rawType = runCatching {
-                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N) {
-                    telephony.dataNetworkType
-                } else {
-                    @Suppress("DEPRECATION")
-                    telephony.networkType
-                }
-            }.getOrDefault(TelephonyManager.NETWORK_TYPE_UNKNOWN)
-            networkTypeLabel(rawType)
-        } else {
-            "Permission needed"
-        }
-
-        val signalStrength = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
-            runCatching { telephony.signalStrength }.getOrNull()
-        } else {
-            null
-        }
+        val signalStrength = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) runCatching { telephony.signalStrength }.getOrNull() else null
         val signalLevel = signalStrength?.level?.coerceIn(0, 4)
-        val signalDbm = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            signalStrength?.cellSignalStrengths?.firstOrNull()?.dbm
-        } else {
-            null
+        var signalDbm: Int? = null
+        var rsrp: Int? = null
+        var rsrq: Int? = null
+        var sinr: Int? = null
+        var radioMode = networkType
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            val strengths = signalStrength?.cellSignalStrengths.orEmpty()
+            val nr = strengths.filterIsInstance<CellSignalStrengthNr>().firstOrNull()
+            val lte = strengths.filterIsInstance<CellSignalStrengthLte>().firstOrNull()
+            if (nr != null) {
+                signalDbm = saneSignal(nr.dbm)
+                rsrp = saneSignal(nr.ssRsrp)
+                rsrq = saneQuality(nr.ssRsrq)
+                sinr = saneSinr(nr.ssSinr)
+                radioMode = if (networkType == "5G+") "5G+ / NR advanced" else "5G NR"
+            } else if (lte != null) {
+                signalDbm = saneSignal(lte.dbm)
+                rsrp = saneSignal(lte.rsrp)
+                rsrq = saneQuality(lte.rsrq)
+                @Suppress("DEPRECATION")
+                sinr = saneSinr(lte.rssnr)
+                radioMode = if (networkType.startsWith("5G")) "5G NSA (LTE anchor)" else if (networkType == "4G LTE+") "LTE-Advanced" else "LTE"
+            } else {
+                signalDbm = strengths.firstOrNull()?.dbm?.let(::saneSignal)
+            }
         }
+        val signalQuality = qualityLabel(signalDbm, rsrp, sinr)
 
         val usageAccess = hasUsageAccess()
-        if (usageAccess) {
-            refreshUsageIfNeeded(resetDay)
-        } else {
+        if (usageAccess) refreshUsageIfNeeded(resetDay) else {
             cachedMonthBytes = null
             cachedThreeDayBytes = null
         }
@@ -136,8 +146,13 @@ class SystemMonitor(private val context: Context) {
         SystemSnapshot(
             carrierName = carrier,
             networkType = networkType,
+            radioMode = radioMode,
             signalLevel = signalLevel,
             signalDbm = signalDbm,
+            signalRsrp = rsrp,
+            signalRsrq = rsrq,
+            signalSinr = sinr,
+            signalQuality = signalQuality,
             batteryPercent = batteryPercent,
             batteryTempC = batteryTemp,
             charging = charging,
@@ -154,21 +169,48 @@ class SystemMonitor(private val context: Context) {
         )
     }
 
+    @Suppress("DEPRECATION")
+    private fun ensureDisplayInfoTracking(telephony: TelephonyManager, phonePermission: Boolean) {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.R || !phonePermission || displayInfoListening) return
+        runCatching {
+            val listener = object : PhoneStateListener(appContext.mainExecutor) {
+                override fun onDisplayInfoChanged(telephonyDisplayInfo: TelephonyDisplayInfo) {
+                    displayOverrideNetworkType = telephonyDisplayInfo.overrideNetworkType
+                }
+            }
+            telephony.listen(listener, PhoneStateListener.LISTEN_DISPLAY_INFO_CHANGED)
+            displayInfoListener = listener
+            displayInfoListening = true
+        }
+    }
+
+    private fun saneSignal(value: Int): Int? = value.takeIf { it in -160..-20 }
+    private fun saneQuality(value: Int): Int? = value.takeIf { it in -50..20 }
+    private fun saneSinr(value: Int): Int? = value.takeIf { it in -30..100 }
+
+    private fun qualityLabel(dbm: Int?, rsrp: Int?, sinr: Int?): String {
+        val power = rsrp ?: dbm ?: return "Unavailable"
+        return when {
+            sinr != null && sinr >= 20 && power >= -95 -> "Excellent"
+            sinr != null && sinr >= 10 && power >= -105 -> "Good"
+            power >= -100 -> "Good"
+            power >= -110 -> "Fair"
+            power >= -120 -> "Weak"
+            else -> "Very weak"
+        }
+    }
+
     private fun readMobileThroughput(): Pair<Long?, Long?> {
         val now = SystemClock.elapsedRealtime()
         val rx = TrafficStats.getMobileRxBytes()
         val tx = TrafficStats.getMobileTxBytes()
-        if (rx == TrafficStats.UNSUPPORTED.toLong() || tx == TrafficStats.UNSUPPORTED.toLong()) {
-            return null to null
-        }
-
+        if (rx == TrafficStats.UNSUPPORTED.toLong() || tx == TrafficStats.UNSUPPORTED.toLong()) return null to null
         if (lastTrafficAt <= 0L || lastMobileRx < 0L || lastMobileTx < 0L || now <= lastTrafficAt) {
             lastTrafficAt = now
             lastMobileRx = rx
             lastMobileTx = tx
             return null to null
         }
-
         val elapsedMs = now - lastTrafficAt
         val down = ((rx - lastMobileRx).coerceAtLeast(0L) * 1000L) / elapsedMs.coerceAtLeast(1L)
         val up = ((tx - lastMobileTx).coerceAtLeast(0L) * 1000L) / elapsedMs.coerceAtLeast(1L)
@@ -178,58 +220,34 @@ class SystemMonitor(private val context: Context) {
         return down to up
     }
 
-    private fun estimateBatteryTimeRemaining(
-        batteryManager: BatteryManager,
-        charging: Boolean,
-        batteryPercent: Int?,
-    ): String {
+    private fun estimateBatteryTimeRemaining(batteryManager: BatteryManager, charging: Boolean, batteryPercent: Int?): String {
         if (charging) {
             resetBatteryEstimate()
             return "Charging"
         }
-
         updatePercentDrainEstimate(batteryPercent)
-
-        // Preferred estimate: remaining charge divided by measured discharge
-        // current. These public BatteryManager properties exist on our API 23
-        // floor, but some OEMs return unsupported/meaningless values.
         val chargeCounter = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CHARGE_COUNTER)
         val averageCurrent = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_AVERAGE)
         val currentNow = batteryManager.getIntProperty(BatteryManager.BATTERY_PROPERTY_CURRENT_NOW)
-
         if (chargeCounter > 0 && chargeCounter != Int.MIN_VALUE) {
             val rawCurrent = when {
-                averageCurrent != Int.MIN_VALUE && abs(averageCurrent) >= MIN_USEFUL_CURRENT_UA ->
-                    abs(averageCurrent).toDouble()
-                currentNow != Int.MIN_VALUE && abs(currentNow) >= MIN_USEFUL_CURRENT_UA ->
-                    abs(currentNow).toDouble()
+                averageCurrent != Int.MIN_VALUE && abs(averageCurrent) >= MIN_USEFUL_CURRENT_UA -> abs(averageCurrent).toDouble()
+                currentNow != Int.MIN_VALUE && abs(currentNow) >= MIN_USEFUL_CURRENT_UA -> abs(currentNow).toDouble()
                 else -> null
             }
-
             if (rawCurrent != null) {
-                val smoothed = smoothedDischargeUa?.let { previous ->
-                    previous * 0.75 + rawCurrent * 0.25
-                } ?: rawCurrent
+                val smoothed = smoothedDischargeUa?.let { previous -> previous * 0.75 + rawCurrent * 0.25 } ?: rawCurrent
                 smoothedDischargeUa = smoothed
-
                 val hardwareHours = chargeCounter.toDouble() / smoothed
-                if (hardwareHours.isFinite() && hardwareHours in MIN_ESTIMATE_HOURS..MAX_ESTIMATE_HOURS) {
-                    return formatRemainingHours(hardwareHours)
-                }
+                if (hardwareHours.isFinite() && hardwareHours in MIN_ESTIMATE_HOURS..MAX_ESTIMATE_HOURS) return formatRemainingHours(hardwareHours)
             }
         }
-
-        // Fallback for phones that don't report current/charge properties:
-        // learn from real percentage drops while ZeroFi is running.
         val percentRate = smoothedPercentPerHour
         val percent = batteryPercent
         if (percentRate != null && percent != null && percentRate > 0.0) {
             val learnedHours = percent / percentRate
-            if (learnedHours.isFinite() && learnedHours in MIN_ESTIMATE_HOURS..MAX_ESTIMATE_HOURS) {
-                return formatRemainingHours(learnedHours)
-            }
+            if (learnedHours.isFinite() && learnedHours in MIN_ESTIMATE_HOURS..MAX_ESTIMATE_HOURS) return formatRemainingHours(learnedHours)
         }
-
         return "Calculating…"
     }
 
@@ -237,35 +255,24 @@ class SystemMonitor(private val context: Context) {
         val percent = batteryPercent ?: return
         val now = SystemClock.elapsedRealtime()
         val previousPercent = drainSamplePercent
-
         if (previousPercent == null || drainSampleAt <= 0L) {
             drainSamplePercent = percent
             drainSampleAt = now
             return
         }
-
         if (percent > previousPercent) {
-            // A percentage increase while not marked charging usually means an
-            // OEM gauge correction. Start a fresh learning window.
             drainSamplePercent = percent
             drainSampleAt = now
             smoothedPercentPerHour = null
             return
         }
-
         if (percent == previousPercent) return
-
         val elapsedMs = now - drainSampleAt
         val drop = previousPercent - percent
         if (drop > 0 && elapsedMs >= MIN_PERCENT_SAMPLE_MS) {
             val rate = drop * 3_600_000.0 / elapsedMs.toDouble()
-            if (rate in MIN_PERCENT_PER_HOUR..MAX_PERCENT_PER_HOUR) {
-                smoothedPercentPerHour = smoothedPercentPerHour?.let { previous ->
-                    previous * 0.65 + rate * 0.35
-                } ?: rate
-            }
+            if (rate in MIN_PERCENT_PER_HOUR..MAX_PERCENT_PER_HOUR) smoothedPercentPerHour = smoothedPercentPerHour?.let { previous -> previous * 0.65 + rate * 0.35 } ?: rate
         }
-
         drainSamplePercent = percent
         drainSampleAt = now
     }
@@ -290,21 +297,15 @@ class SystemMonitor(private val context: Context) {
 
     private fun hasUsageAccess(): Boolean {
         val appOps = appContext.getSystemService(AppOpsManager::class.java)
-        return appOps.checkOpNoThrow(
-            AppOpsManager.OPSTR_GET_USAGE_STATS,
-            Process.myUid(),
-            appContext.packageName,
-        ) == AppOpsManager.MODE_ALLOWED
+        return appOps.checkOpNoThrow(AppOpsManager.OPSTR_GET_USAGE_STATS, Process.myUid(), appContext.packageName) == AppOpsManager.MODE_ALLOWED
     }
 
     @Suppress("DEPRECATION")
     private fun refreshUsageIfNeeded(resetDay: Int) {
         val nowElapsed = SystemClock.elapsedRealtime()
         if (resetDay == lastUsageResetDay && nowElapsed - lastUsageReadAt < USAGE_CACHE_MS) return
-
         lastUsageReadAt = nowElapsed
         lastUsageResetDay = resetDay
-
         val now = System.currentTimeMillis()
         val manager = appContext.getSystemService(NetworkStatsManager::class.java)
         cachedMonthBytes = queryMobileBytes(manager, cycleStartMillis(resetDay), now)
@@ -312,17 +313,8 @@ class SystemMonitor(private val context: Context) {
     }
 
     @Suppress("DEPRECATION")
-    private fun queryMobileBytes(
-        manager: NetworkStatsManager,
-        start: Long,
-        end: Long,
-    ): Long? = runCatching {
-        val bucket = manager.querySummaryForDevice(
-            ConnectivityManager.TYPE_MOBILE,
-            null,
-            start,
-            end,
-        )
+    private fun queryMobileBytes(manager: NetworkStatsManager, start: Long, end: Long): Long? = runCatching {
+        val bucket = manager.querySummaryForDevice(ConnectivityManager.TYPE_MOBILE, null, start, end)
         bucket.rxBytes + bucket.txBytes
     }.getOrNull()
 
@@ -338,20 +330,31 @@ class SystemMonitor(private val context: Context) {
         return calendar.timeInMillis
     }
 
-    private fun networkTypeLabel(type: Int): String = when (type) {
-        TelephonyManager.NETWORK_TYPE_NR -> "5G"
-        TelephonyManager.NETWORK_TYPE_LTE -> "4G LTE"
-        TelephonyManager.NETWORK_TYPE_HSPAP,
-        TelephonyManager.NETWORK_TYPE_HSPA,
-        TelephonyManager.NETWORK_TYPE_HSDPA,
-        TelephonyManager.NETWORK_TYPE_HSUPA,
-        TelephonyManager.NETWORK_TYPE_UMTS -> "3G"
-        TelephonyManager.NETWORK_TYPE_EDGE,
-        TelephonyManager.NETWORK_TYPE_GPRS,
-        TelephonyManager.NETWORK_TYPE_GSM -> "2G"
-        TelephonyManager.NETWORK_TYPE_IWLAN -> "Wi-Fi calling"
-        TelephonyManager.NETWORK_TYPE_UNKNOWN -> "Unknown"
-        else -> "Mobile"
+    private fun networkTypeLabel(type: Int, displayOverride: Int): String {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            when (displayOverride) {
+                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA -> return "5G"
+                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_NSA_MMWAVE -> return "5G+"
+                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_LTE_CA,
+                TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_LTE_ADVANCED_PRO -> if (type == TelephonyManager.NETWORK_TYPE_LTE) return "4G LTE+"
+            }
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S && displayOverride == TelephonyDisplayInfo.OVERRIDE_NETWORK_TYPE_NR_ADVANCED) return "5G+"
+        }
+        return when (type) {
+            TelephonyManager.NETWORK_TYPE_NR -> "5G"
+            TelephonyManager.NETWORK_TYPE_LTE -> "4G LTE"
+            TelephonyManager.NETWORK_TYPE_HSPAP,
+            TelephonyManager.NETWORK_TYPE_HSPA,
+            TelephonyManager.NETWORK_TYPE_HSDPA,
+            TelephonyManager.NETWORK_TYPE_HSUPA,
+            TelephonyManager.NETWORK_TYPE_UMTS -> "3G"
+            TelephonyManager.NETWORK_TYPE_EDGE,
+            TelephonyManager.NETWORK_TYPE_GPRS,
+            TelephonyManager.NETWORK_TYPE_GSM -> "2G"
+            TelephonyManager.NETWORK_TYPE_IWLAN -> "Wi-Fi calling"
+            TelephonyManager.NETWORK_TYPE_UNKNOWN -> "Unknown"
+            else -> "Mobile"
+        }
     }
 
     private fun formatUptime(elapsedMs: Long): String {
