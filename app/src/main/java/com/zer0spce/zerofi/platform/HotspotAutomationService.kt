@@ -15,7 +15,7 @@ import java.util.ArrayDeque
 
 /**
  * Optional accessibility automation used only after the user explicitly enables it.
- * It can turn hotspot on through Quick Settings and can also try to apply hotspot
+ * It can turn hotspot on through Quick Settings and can also apply hotspot
  * name/password through the OEM Settings UI when direct tethering APIs are blocked.
  */
 class HotspotAutomationService : AccessibilityService() {
@@ -24,8 +24,11 @@ class HotspotAutomationService : AccessibilityService() {
     private var ensureAttempts = 0
 
     private var pendingProfile: HotspotProfileRequest? = null
-    private var profileStage = ProfileStage.OPEN_PAGE
+    private var profileStage = ProfileStage.OPEN_TETHER_PAGE
     private var profileAttempts = 0
+    private var profileSsidApplied = false
+    private var profilePasswordApplied = false
+    private var profileResult: ((Boolean, String) -> Unit)? = null
 
     override fun onServiceConnected() {
         super.onServiceConnected()
@@ -35,6 +38,7 @@ class HotspotAutomationService : AccessibilityService() {
     override fun onDestroy() {
         if (instance === this) instance = null
         handler.removeCallbacksAndMessages(null)
+        finishProfileAutomation(false, "Hotspot automation stopped before it finished")
         super.onDestroy()
     }
 
@@ -44,7 +48,7 @@ class HotspotAutomationService : AccessibilityService() {
             scheduleEnsureScan(120L)
         }
         if (pendingProfile != null && (packageName.isEmpty() || packageName.contains("settings", ignoreCase = true))) {
-            scheduleProfileScan(160L)
+            scheduleProfileScan(140L)
         }
     }
 
@@ -91,10 +95,21 @@ class HotspotAutomationService : AccessibilityService() {
         performGlobalAction(GLOBAL_ACTION_BACK)
     }
 
-    private fun requestApplyProfile(request: HotspotProfileRequest) {
+    private fun requestApplyProfile(
+        request: HotspotProfileRequest,
+        onResult: (Boolean, String) -> Unit,
+    ) {
+        if (pendingProfile != null) {
+            onResult(false, "Another hotspot update is already running")
+            return
+        }
         pendingProfile = request
-        profileStage = ProfileStage.OPEN_PAGE
+        profileResult = onResult
+        profileStage = ProfileStage.OPEN_TETHER_PAGE
         profileAttempts = 0
+        profileSsidApplied = false
+        profilePasswordApplied = request.openNetwork
+
         runCatching {
             startActivity(Intent(ACTION_TETHER_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
         }.onFailure {
@@ -102,7 +117,7 @@ class HotspotAutomationService : AccessibilityService() {
                 startActivity(Intent(Settings.ACTION_WIRELESS_SETTINGS).apply { addFlags(Intent.FLAG_ACTIVITY_NEW_TASK) })
             }
         }
-        scheduleProfileScan(850L)
+        scheduleProfileScan(700L)
     }
 
     private fun scheduleProfileScan(delayMs: Long) {
@@ -117,102 +132,142 @@ class HotspotAutomationService : AccessibilityService() {
         profileAttempts++
         val root = rootInActiveWindow
         if (root == null) {
-            retryProfileOrFinish()
+            retryProfileOrFinish("Android Settings did not expose the hotspot controls")
             return
         }
 
         when (profileStage) {
-            ProfileStage.OPEN_PAGE -> {
-                val directSsid = findEditableByLabels(root, SSID_LABELS)
-                val directPassword = findEditableByLabels(root, PASSWORD_LABELS)
-                if (directSsid != null || directPassword != null) {
-                    var touched = false
-                    directSsid?.let { touched = setNodeText(it, request.ssid) || touched }
-                    if (!request.openNetwork) directPassword?.let { touched = setNodeText(it, request.password) || touched }
-                    if (request.openNetwork || directPassword != null) {
-                        if (touched) clickSaveLike(root)
-                        finishProfileAutomation()
-                        return
-                    }
+            ProfileStage.OPEN_TETHER_PAGE -> {
+                // Pixel/AOSP first opens "Hotspot & tethering". The Wi-Fi hotspot
+                // preference text itself often is not clickable, while a grandparent
+                // preference row is. Find the text first, then walk up to the row.
+                val hotspotPage = findBestLabelNode(root, HOTSPOT_SETTINGS_LABELS)
+                if (hotspotPage != null && clickNodeOrParent(hotspotPage, 9)) {
+                    profileStage = ProfileStage.WAIT_FOR_HOTSPOT_PAGE
+                    scheduleProfileScan(550L)
+                    return
                 }
 
-                val hotspotPage = findClickableByLabels(root, HOTSPOT_SETTINGS_LABELS)
-                if (hotspotPage != null && clickNodeOrParent(hotspotPage)) {
+                // Some OEMs jump directly to the hotspot detail page.
+                if (containsProfileControls(root)) {
                     profileStage = ProfileStage.SSID
-                    scheduleProfileScan(650L)
+                    scheduleProfileScan(100L)
+                    return
+                }
+                retryProfileOrFinish("Could not open Wi-Fi hotspot settings")
+            }
+
+            ProfileStage.WAIT_FOR_HOTSPOT_PAGE -> {
+                if (containsProfileControls(root)) {
+                    profileStage = ProfileStage.SSID
+                    scheduleProfileScan(100L)
                 } else {
-                    profileStage = ProfileStage.SSID
-                    scheduleProfileScan(300L)
+                    retryProfileOrFinish("Waiting for Wi-Fi hotspot settings")
                 }
             }
 
             ProfileStage.SSID -> {
                 val editable = findEditableByLabels(root, SSID_LABELS)
                 if (editable != null && setNodeText(editable, request.ssid)) {
+                    profileSsidApplied = true
                     clickSaveLike(root)
                     profileStage = if (request.openNetwork) ProfileStage.FINALIZE else ProfileStage.PASSWORD
-                    scheduleProfileScan(650L)
+                    scheduleProfileScan(450L)
                     return
                 }
 
-                val row = findClickableByLabels(root, SSID_LABELS)
-                if (row != null && clickNodeOrParent(row)) {
+                val row = findBestLabelNode(root, SSID_LABELS)
+                if (row != null && clickNodeOrParent(row, 9)) {
                     profileStage = ProfileStage.SSID_DIALOG
-                    scheduleProfileScan(450L)
-                } else retryProfileOrFinish()
+                    scheduleProfileScan(350L)
+                } else retryProfileOrFinish("Could not find the hotspot name control")
             }
 
             ProfileStage.SSID_DIALOG -> {
                 val editable = findFirstEditable(root)
                 if (editable != null && setNodeText(editable, request.ssid)) {
-                    clickPositiveLike(root)
+                    profileSsidApplied = true
+                    if (!clickPositiveLike(root)) {
+                        // Enter key/save buttons vary by OEM; a back press usually commits
+                        // preference dialogs that lack an explicit positive action.
+                        performGlobalAction(GLOBAL_ACTION_BACK)
+                    }
                     profileStage = if (request.openNetwork) ProfileStage.FINALIZE else ProfileStage.PASSWORD
-                    scheduleProfileScan(650L)
-                } else retryProfileOrFinish()
+                    scheduleProfileScan(450L)
+                } else retryProfileOrFinish("Could not edit the hotspot name")
             }
 
             ProfileStage.PASSWORD -> {
                 val editable = findEditableByLabels(root, PASSWORD_LABELS)
                 if (editable != null && setNodeText(editable, request.password)) {
+                    profilePasswordApplied = true
                     clickSaveLike(root)
                     profileStage = ProfileStage.FINALIZE
-                    scheduleProfileScan(650L)
+                    scheduleProfileScan(450L)
                     return
                 }
 
-                val row = findClickableByLabels(root, PASSWORD_LABELS)
-                if (row != null && clickNodeOrParent(row)) {
+                val row = findBestLabelNode(root, PASSWORD_LABELS)
+                if (row != null && clickNodeOrParent(row, 9)) {
                     profileStage = ProfileStage.PASSWORD_DIALOG
-                    scheduleProfileScan(450L)
-                } else retryProfileOrFinish()
+                    scheduleProfileScan(350L)
+                } else retryProfileOrFinish("Could not find the hotspot password control")
             }
 
             ProfileStage.PASSWORD_DIALOG -> {
                 val editable = findFirstEditable(root)
                 if (editable != null && setNodeText(editable, request.password)) {
-                    clickPositiveLike(root)
+                    profilePasswordApplied = true
+                    if (!clickPositiveLike(root)) {
+                        performGlobalAction(GLOBAL_ACTION_BACK)
+                    }
                     profileStage = ProfileStage.FINALIZE
-                    scheduleProfileScan(650L)
-                } else retryProfileOrFinish()
+                    scheduleProfileScan(450L)
+                } else retryProfileOrFinish("Could not edit the hotspot password")
             }
 
             ProfileStage.FINALIZE -> {
                 clickSaveLike(root)
-                finishProfileAutomation()
+                val success = profileSsidApplied && profilePasswordApplied
+                if (success) {
+                    finishProfileAutomation(true, "Android hotspot updated")
+                } else {
+                    finishProfileAutomation(false, "Android hotspot fields could not be fully updated")
+                }
             }
         }
     }
 
-    private fun retryProfileOrFinish() {
-        if (profileAttempts < 12) scheduleProfileScan(350L) else finishProfileAutomation()
+    private fun containsProfileControls(root: AccessibilityNodeInfo): Boolean {
+        val nodes = flatten(root)
+        val labels = nodes.map { buildNodeLabel(it).lowercase() }
+        return labels.any { label -> SSID_LABELS.any(label::contains) } ||
+            labels.any { label -> PASSWORD_LABELS.any(label::contains) }
     }
 
-    private fun finishProfileAutomation() {
+    private fun retryProfileOrFinish(reason: String) {
+        if (profileAttempts < 18) {
+            scheduleProfileScan(300L)
+        } else {
+            finishProfileAutomation(false, reason)
+        }
+    }
+
+    private fun finishProfileAutomation(success: Boolean, message: String) {
+        if (pendingProfile == null && profileResult == null) return
         pendingProfile = null
-        profileStage = ProfileStage.OPEN_PAGE
+        profileStage = ProfileStage.OPEN_TETHER_PAGE
         profileAttempts = 0
+        profileSsidApplied = false
+        profilePasswordApplied = false
         handler.removeCallbacks(profileScanRunnable)
-        performGlobalAction(GLOBAL_ACTION_BACK)
+        val callback = profileResult
+        profileResult = null
+        callback?.invoke(success, message)
+
+        // Return from Wi-Fi hotspot detail -> Hotspot & tethering -> ZeroFi.
+        handler.postDelayed({ performGlobalAction(GLOBAL_ACTION_BACK) }, 200L)
+        handler.postDelayed({ performGlobalAction(GLOBAL_ACTION_BACK) }, 500L)
     }
 
     private fun findEditableByLabels(root: AccessibilityNodeInfo, labels: List<String>): AccessibilityNodeInfo? {
@@ -227,11 +282,17 @@ class HotspotAutomationService : AccessibilityService() {
 
     private fun surroundingLabel(node: AccessibilityNodeInfo): String = buildString {
         append(buildNodeLabel(node).lowercase())
-        node.parent?.let { append(' ').append(buildNodeLabel(it).lowercase()) }
+        var parent = node.parent
+        repeat(3) {
+            parent ?: return@repeat
+            append(' ').append(buildNodeLabel(parent).lowercase())
+            parent = parent.parent
+        }
     }
 
     private fun setNodeText(node: AccessibilityNodeInfo, value: String): Boolean {
         if (!node.isEditable) return false
+        runCatching { node.performAction(AccessibilityNodeInfo.ACTION_FOCUS) }
         val args = Bundle().apply {
             putCharSequence(AccessibilityNodeInfo.ACTION_ARGUMENT_SET_TEXT_CHARSEQUENCE, value)
         }
@@ -239,16 +300,21 @@ class HotspotAutomationService : AccessibilityService() {
     }
 
     private fun clickSaveLike(root: AccessibilityNodeInfo): Boolean =
-        findClickableByLabels(root, SAVE_LABELS)?.let(::clickNodeOrParent) ?: false
+        findBestLabelNode(root, SAVE_LABELS)?.let { clickNodeOrParent(it, 7) } ?: false
 
     private fun clickPositiveLike(root: AccessibilityNodeInfo): Boolean =
-        findClickableByLabels(root, POSITIVE_LABELS)?.let(::clickNodeOrParent) ?: false
+        findBestLabelNode(root, POSITIVE_LABELS)?.let { clickNodeOrParent(it, 7) } ?: false
 
-    private fun findClickableByLabels(root: AccessibilityNodeInfo, labels: List<String>): AccessibilityNodeInfo? =
-        flatten(root).firstOrNull { node ->
-            val label = buildNodeLabel(node).lowercase()
-            labels.any(label::contains) && (node.isClickable || node.parent?.isClickable == true)
+    private fun findBestLabelNode(root: AccessibilityNodeInfo, labels: List<String>): AccessibilityNodeInfo? {
+        val nodes = flatten(root)
+        labels.forEach { token ->
+            nodes.firstOrNull { buildNodeLabel(it).trim().equals(token, ignoreCase = true) }?.let { return it }
         }
+        labels.forEach { token ->
+            nodes.firstOrNull { buildNodeLabel(it).lowercase().contains(token) }?.let { return it }
+        }
+        return null
+    }
 
     private fun flatten(root: AccessibilityNodeInfo): List<AccessibilityNodeInfo> {
         val result = ArrayList<AccessibilityNodeInfo>()
@@ -262,17 +328,8 @@ class HotspotAutomationService : AccessibilityService() {
         return result
     }
 
-    private fun findHotspotNode(root: AccessibilityNodeInfo): AccessibilityNodeInfo? {
-        val queue = ArrayDeque<AccessibilityNodeInfo>()
-        queue.add(root)
-        while (queue.isNotEmpty()) {
-            val node = queue.removeFirst()
-            val label = buildNodeLabel(node).lowercase()
-            if (HOTSPOT_LABELS.any { label.contains(it) }) return node
-            for (i in 0 until node.childCount) node.getChild(i)?.let(queue::addLast)
-        }
-        return null
-    }
+    private fun findHotspotNode(root: AccessibilityNodeInfo): AccessibilityNodeInfo? =
+        findBestLabelNode(root, HOTSPOT_LABELS)
 
     private fun buildNodeLabel(node: AccessibilityNodeInfo): String = buildString {
         node.text?.let { append(it).append(' ') }
@@ -289,7 +346,7 @@ class HotspotAutomationService : AccessibilityService() {
         if (offTokens.any(label::contains)) return TileState.OFF
         if (onTokens.any(label::contains)) return TileState.ON
         var parent = node.parent
-        repeat(3) {
+        repeat(5) {
             parent ?: return@repeat
             val parentLabel = buildNodeLabel(parent).lowercase()
             if (parent.isCheckable) return if (parent.isChecked) TileState.ON else TileState.OFF
@@ -300,9 +357,9 @@ class HotspotAutomationService : AccessibilityService() {
         return TileState.UNKNOWN
     }
 
-    private fun clickNodeOrParent(node: AccessibilityNodeInfo): Boolean {
+    private fun clickNodeOrParent(node: AccessibilityNodeInfo, levels: Int = 6): Boolean {
         var current: AccessibilityNodeInfo? = node
-        repeat(5) {
+        repeat(levels) {
             val candidate = current ?: return false
             if (candidate.isClickable && candidate.performAction(AccessibilityNodeInfo.ACTION_CLICK)) return true
             current = candidate.parent
@@ -311,7 +368,15 @@ class HotspotAutomationService : AccessibilityService() {
     }
 
     private enum class TileState { ON, OFF, UNKNOWN }
-    private enum class ProfileStage { OPEN_PAGE, SSID, SSID_DIALOG, PASSWORD, PASSWORD_DIALOG, FINALIZE }
+    private enum class ProfileStage {
+        OPEN_TETHER_PAGE,
+        WAIT_FOR_HOTSPOT_PAGE,
+        SSID,
+        SSID_DIALOG,
+        PASSWORD,
+        PASSWORD_DIALOG,
+        FINALIZE,
+    }
 
     data class HotspotProfileRequest(
         val ssid: String,
@@ -324,15 +389,36 @@ class HotspotAutomationService : AccessibilityService() {
 
         @Volatile private var instance: HotspotAutomationService? = null
 
-        private val HOTSPOT_LABELS = listOf("mobile hotspot", "wi-fi hotspot", "wifi hotspot", "personal hotspot", "hotspot")
-        private val HOTSPOT_SETTINGS_LABELS = listOf("mobile hotspot", "wi-fi hotspot", "wifi hotspot", "hotspot settings", "portable hotspot")
-        private val SSID_LABELS = listOf("network name", "hotspot name", "wi-fi name", "wifi name", "ssid", "name")
-        private val PASSWORD_LABELS = listOf("password", "passphrase", "hotspot password")
+        private val HOTSPOT_LABELS = listOf(
+            "mobile hotspot",
+            "wi-fi hotspot",
+            "wifi hotspot",
+            "personal hotspot",
+            "hotspot",
+        )
+        private val HOTSPOT_SETTINGS_LABELS = listOf(
+            "wi-fi hotspot",
+            "wifi hotspot",
+            "mobile hotspot",
+            "personal hotspot",
+            "portable hotspot",
+        )
+        private val SSID_LABELS = listOf(
+            "hotspot name",
+            "network name",
+            "wi-fi name",
+            "wifi name",
+            "ssid",
+        )
+        private val PASSWORD_LABELS = listOf("hotspot password", "password", "passphrase")
         private val SAVE_LABELS = listOf("save", "apply", "done")
         private val POSITIVE_LABELS = listOf("ok", "save", "apply", "done")
 
         fun isEnabled(context: Context): Boolean {
-            val enabled = Settings.Secure.getString(context.contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES).orEmpty()
+            val enabled = Settings.Secure.getString(
+                context.contentResolver,
+                Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES,
+            ).orEmpty()
             val component = ComponentName(context, HotspotAutomationService::class.java).flattenToString()
             return enabled.split(':').any { it.equals(component, ignoreCase = true) }
         }
@@ -342,12 +428,20 @@ class HotspotAutomationService : AccessibilityService() {
             service.handler.post { service.requestEnsureOn() }
         }
 
-        fun requestApplyHotspotProfile(ssid: String, password: String, openNetwork: Boolean): Boolean {
+        fun requestApplyHotspotProfile(
+            ssid: String,
+            password: String,
+            openNetwork: Boolean,
+            onResult: (Boolean, String) -> Unit,
+        ): Boolean {
             val service = instance ?: return false
             if (ssid.isBlank()) return false
             if (!openNetwork && password.length !in 8..63) return false
             service.handler.post {
-                service.requestApplyProfile(HotspotProfileRequest(ssid.trim(), password, openNetwork))
+                service.requestApplyProfile(
+                    HotspotProfileRequest(ssid.trim(), password, openNetwork),
+                    onResult,
+                )
             }
             return true
         }
