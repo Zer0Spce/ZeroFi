@@ -60,7 +60,12 @@ fun RouterSettingsV2(
             SettingsCard {
                 SettingsLabel("ROUTER MODE")
                 Spacer(Modifier.height(6.dp))
-                SettingsSwitch("Launch after boot", "Open ZeroFi after Android starts", settings.autoLaunchOnBoot, onAutoLaunchChanged)
+                SettingsSwitch(
+                    "Launch after boot",
+                    "Open ZeroFi after Android starts",
+                    settings.autoLaunchOnBoot,
+                    onChecked = onAutoLaunchChanged,
+                )
                 SettingsSwitch(
                     "Dedicated Battery Saver",
                     if (dedicatedModeSupported) "Suspend ordinary user apps while ZeroFi runs" else "Requires Android 7+ and Device Owner",
