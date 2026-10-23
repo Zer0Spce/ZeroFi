@@ -7,6 +7,7 @@ import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
 import android.net.Uri
+import android.os.Build
 import android.provider.Settings
 import com.zer0spce.zerofi.admin.ZeroFiDeviceAdminReceiver
 
@@ -76,10 +77,15 @@ object RouterLockController {
         return runCatching {
             if (owner) {
                 dpm.setLockTaskPackages(adminComponent(activity), arrayOf(activity.packageName))
-                dpm.setLockTaskFeatures(
-                    adminComponent(activity),
-                    DevicePolicyManager.LOCK_TASK_FEATURE_NONE,
-                )
+                // setLockTaskFeatures was added in Android 9 / API 28. Older
+                // Android versions can still use Device Owner lock task mode;
+                // they simply keep the platform's default lock-task features.
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+                    dpm.setLockTaskFeatures(
+                        adminComponent(activity),
+                        DevicePolicyManager.LOCK_TASK_FEATURE_NONE,
+                    )
+                }
             }
             activity.startLockTask()
             LockResult(
