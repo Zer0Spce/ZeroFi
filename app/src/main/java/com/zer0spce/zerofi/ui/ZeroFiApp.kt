@@ -19,6 +19,7 @@ import com.zer0spce.zerofi.ui.theme.AccentTheme
 import com.zer0spce.zerofi.ui.theme.ZeroFiTheme
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.util.Calendar
 import kotlin.math.roundToInt
@@ -26,6 +27,7 @@ import kotlin.math.roundToInt
 enum class AppScreen {
     DASHBOARD, HOTSPOT, DEVICES, DATA, DISPLAY, SETTINGS, DIAGNOSTICS, STANDBY,
     CONTROL_CENTER, ROUTER_RULES, SIGNAL_HISTORY, SPEED_TEST, NETWORK_TOOLS, BACKUP_RESTORE,
+    CELLULAR_DIAGNOSTICS, INTERNET_HEALTH,
 }
 
 data class ZeroFiSettingsState(
@@ -37,6 +39,8 @@ data class ZeroFiSettingsState(
     val keepScreenOn: Boolean,
     val autoLaunchOnBoot: Boolean,
     val hotspotAutomationEnabled: Boolean,
+    val startupRouterAutomationEnabled: Boolean,
+    val routerNotificationEnabled: Boolean,
     val immersiveMode: Boolean,
     val dedicatedBatterySaver: Boolean,
     val hotspotSsid: String,
@@ -62,6 +66,8 @@ private fun readSettings(p: AppPreferences) = ZeroFiSettingsState(
     keepScreenOn = p.keepScreenOn,
     autoLaunchOnBoot = p.autoLaunchOnBoot,
     hotspotAutomationEnabled = p.hotspotAutomationEnabled,
+    startupRouterAutomationEnabled = p.startupRouterAutomationEnabled,
+    routerNotificationEnabled = p.routerNotificationEnabled,
     immersiveMode = p.immersiveMode,
     dedicatedBatterySaver = p.dedicatedBatterySaver,
     hotspotSsid = p.hotspotSsid,
@@ -87,10 +93,13 @@ fun ZeroFiApp() {
     val monitor = remember { runCatching { SystemMonitor(context) }.getOrNull() }
     val featureMonitor = remember { RouterFeatureMonitor(context) }
     val tetheringWatcher = remember { runCatching { TetheringWatcher(context) }.getOrNull() }
+    val scope = rememberCoroutineScope()
 
     var screen by remember { mutableStateOf(AppScreen.DASHBOARD) }
     var snapshot by remember { mutableStateOf(SystemSnapshot()) }
     var featureSnapshot by remember { mutableStateOf(RouterFeatureSnapshot()) }
+    var internetHealth by remember { mutableStateOf(InternetHealthSnapshot()) }
+    var internetHealthChecking by remember { mutableStateOf(false) }
     var clientSnapshot by remember { mutableStateOf(HotspotClientSnapshot()) }
     var rules by remember { mutableStateOf(rulesStore.snapshot()) }
     val signalHistory = remember { mutableStateListOf<SignalSample>() }
@@ -115,6 +124,8 @@ fun ZeroFiApp() {
                 detectedBand = status.band
                 liveHotspotSsid = status.ssid
                 liveHotspotSecurity = status.security
+                context.getSharedPreferences(RouterActionReceiver.RUNTIME_PREFS, android.content.Context.MODE_PRIVATE)
+                    .edit().putBoolean(RouterActionReceiver.KEY_HOTSPOT_ACTIVE, status.active == true).apply()
                 val liveSsid = status.ssid?.trim().orEmpty()
                 if (liveSsid.isNotBlank()) {
                     val desiredSsid = preferences.hotspotSsid.trim()
@@ -153,9 +164,16 @@ fun ZeroFiApp() {
         }
     }
 
-    LaunchedEffect(settings.hotspotAutomationEnabled) {
+    LaunchedEffect(settings.hotspotAutomationEnabled, settings.startupRouterAutomationEnabled) {
         if (settings.hotspotAutomationEnabled && HotspotAutomationService.isEnabled(context)) {
-            HotspotAutomationService.requestEnsureHotspotOn()
+            delay(500L)
+            if (settings.startupRouterAutomationEnabled) {
+                HotspotAutomationService.requestStartupRouterMode { success, message ->
+                    if (!success) Toast.makeText(context, message, Toast.LENGTH_LONG).show()
+                }
+            } else {
+                HotspotAutomationService.requestEnsureHotspotOn()
+            }
         }
     }
 
@@ -174,6 +192,17 @@ fun ZeroFiApp() {
             rules = rulesStore.snapshot()
             delay(5_000L)
         }
+    }
+
+    LaunchedEffect(Unit) {
+        while (true) {
+            internetHealth = runCatching { InternetHealthMonitor.check() }.getOrDefault(internetHealth)
+            delay(300_000L)
+        }
+    }
+
+    LaunchedEffect(snapshot, hotspotActive, clientSnapshot, settings.routerNotificationEnabled) {
+        RouterStatusNotifier.update(context, snapshot, hotspotActive, clientSnapshot, settings.routerNotificationEnabled)
     }
 
     LaunchedEffect(snapshot.signalDbm) {
@@ -269,8 +298,36 @@ fun ZeroFiApp() {
             HotspotLaunchController.ensureConfiguredOrRun(host)
         } else {
             preferences.hotspotAutomationEnabled = false
-            settings = settings.copy(hotspotAutomationEnabled = false)
+            preferences.startupRouterAutomationEnabled = false
+            settings = settings.copy(hotspotAutomationEnabled = false, startupRouterAutomationEnabled = false)
             Toast.makeText(context, "Hotspot automation disabled", Toast.LENGTH_SHORT).show()
+        }
+    }
+
+    fun runStartupRouterSequence() {
+        if (!HotspotAutomationService.isEnabled(context)) {
+            val host = activity
+            if (host != null) {
+                preferences.hotspotAutomationEnabled = true
+                settings = settings.copy(hotspotAutomationEnabled = true)
+                HotspotLaunchController.resetSetupPrompt(host)
+                HotspotLaunchController.ensureConfiguredOrRun(host)
+            }
+            Toast.makeText(context, "Enable ZeroFi Hotspot Automation first.", Toast.LENGTH_LONG).show()
+            return
+        }
+        val started = HotspotAutomationService.requestStartupRouterMode { success, message ->
+            Toast.makeText(context, if (success) "Router ready: $message" else message, Toast.LENGTH_LONG).show()
+        }
+        if (started) Toast.makeText(context, "Preparing router: Wi-Fi off → data on → hotspot on…", Toast.LENGTH_LONG).show()
+    }
+
+    fun runInternetHealthCheck() {
+        if (internetHealthChecking) return
+        internetHealthChecking = true
+        scope.launch {
+            internetHealth = runCatching { InternetHealthMonitor.check() }.getOrDefault(internetHealth)
+            internetHealthChecking = false
         }
     }
 
@@ -395,6 +452,14 @@ fun ZeroFiApp() {
                     { preferences.oledSaver = it; settings = settings.copy(oledSaver = it) },
                     { preferences.autoOledOnStandby = it; settings = settings.copy(autoOledOnStandby = it) },
                     ::toggleHotspotAutomation,
+                    { enabled -> preferences.startupRouterAutomationEnabled = enabled; settings = settings.copy(startupRouterAutomationEnabled = enabled) },
+                    ::runStartupRouterSequence,
+                    { enabled ->
+                        preferences.routerNotificationEnabled = enabled
+                        settings = settings.copy(routerNotificationEnabled = enabled)
+                        if (!enabled) RouterStatusNotifier.cancel(context)
+                        else if (Build.VERSION.SDK_INT >= 33 && !RouterAlertNotifier.notificationsGranted(context)) notificationPermissionLauncher.launch(Manifest.permission.POST_NOTIFICATIONS)
+                    },
                     { preferences.autoOffMinutes = it; settings = settings.copy(autoOffMinutes = it) },
                     { preferences.keepHotspotWhileCharging = it; settings = settings.copy(keepHotspotWhileCharging = it) },
                     { preferences.dataAlertsEnabled = it; settings = settings.copy(dataAlertsEnabled = it) },
@@ -404,6 +469,8 @@ fun ZeroFiApp() {
                     { RouterController.openAppSettings(context) },
                     { screen = AppScreen.CONTROL_CENTER },
                     { screen = AppScreen.ROUTER_RULES },
+                    { screen = AppScreen.CELLULAR_DIAGNOSTICS },
+                    { screen = AppScreen.INTERNET_HEALTH; runInternetHealthCheck() },
                     { screen = AppScreen.SIGNAL_HISTORY },
                     { screen = AppScreen.SPEED_TEST },
                     { screen = AppScreen.NETWORK_TOOLS },
@@ -418,6 +485,17 @@ fun ZeroFiApp() {
                 )
 
                 AppScreen.ROUTER_RULES -> RouterRulesScreen { screen = AppScreen.SETTINGS }
+                AppScreen.CELLULAR_DIAGNOSTICS -> CellularDiagnosticsScreen(snapshot) { screen = AppScreen.SETTINGS }
+                AppScreen.INTERNET_HEALTH -> InternetHealthScreen(
+                    internetHealth,
+                    snapshot,
+                    settings.hotspotAutomationEnabled && HotspotAutomationService.isEnabled(context),
+                    internetHealthChecking,
+                    { screen = AppScreen.SETTINGS },
+                    ::runInternetHealthCheck,
+                    ::runStartupRouterSequence,
+                    { RouterController.openMobileNetworkSettings(context) },
+                )
                 AppScreen.SIGNAL_HISTORY -> SignalHistoryScreen(signalHistory, { screen = AppScreen.CONTROL_CENTER })
                 AppScreen.SPEED_TEST -> SpeedTestHistoryScreen { screen = AppScreen.CONTROL_CENTER }
                 AppScreen.NETWORK_TOOLS -> NetworkToolsScreen(
