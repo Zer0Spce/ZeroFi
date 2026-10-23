@@ -38,11 +38,25 @@ class Api36TetheringWatcher(private val context: Context) {
         manager = null
     }
 
-    private fun bandLabel(config: SoftApConfiguration): String = when (config.band) {
-        SoftApConfiguration.BAND_2GHZ -> "2.4 GHz"
-        SoftApConfiguration.BAND_5GHZ -> "5 GHz"
-        SoftApConfiguration.BAND_6GHZ -> "6 GHz"
-        SoftApConfiguration.BAND_60GHZ -> "60 GHz"
-        else -> "Multi-band"
+    private fun bandLabel(config: SoftApConfiguration): String {
+        val channels = config.channels
+        if (channels.size() == 0) return "System"
+
+        val labels = buildList {
+            for (index in 0 until channels.size()) {
+                when (channels.keyAt(index)) {
+                    SoftApConfiguration.BAND_2GHZ -> add("2.4 GHz")
+                    SoftApConfiguration.BAND_5GHZ -> add("5 GHz")
+                    SoftApConfiguration.BAND_6GHZ -> add("6 GHz")
+                    SoftApConfiguration.BAND_60GHZ -> add("60 GHz")
+                }
+            }
+        }.distinct()
+
+        return when {
+            labels.isEmpty() -> "System"
+            labels.size == 1 -> labels.first()
+            else -> labels.joinToString(" + ")
+        }
     }
 }
