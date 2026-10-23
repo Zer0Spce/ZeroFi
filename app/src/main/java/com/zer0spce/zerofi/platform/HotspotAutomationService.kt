@@ -19,6 +19,10 @@ class HotspotAutomationService : AccessibilityService() {
     private var pendingEnsureTarget: TileState? = null
     private var ensureAttempts = 0
 
+    private var startupStage: StartupStage? = null
+    private var startupAttempts = 0
+    private var startupResult: ((Boolean, String) -> Unit)? = null
+
     private var pendingProfile: HotspotProfileRequest? = null
     private var profileStage = ProfileStage.OPEN_PAGE
     private var profileAttempts = 0
@@ -34,6 +38,7 @@ class HotspotAutomationService : AccessibilityService() {
     override fun onDestroy() {
         if (instance === this) instance = null
         handler.removeCallbacksAndMessages(null)
+        finishStartup(false, "Router startup automation stopped before it finished")
         finishProfile(false, "Hotspot automation stopped before it finished")
         super.onDestroy()
     }
@@ -41,13 +46,14 @@ class HotspotAutomationService : AccessibilityService() {
     override fun onAccessibilityEvent(event: AccessibilityEvent?) {
         val pkg = event?.packageName?.toString().orEmpty()
         if (pendingEnsureTarget != null && (pkg.isBlank() || pkg.contains("systemui", true))) scheduleEnsureScan(120L)
+        if (startupStage != null && (pkg.isBlank() || pkg.contains("systemui", true))) scheduleStartupScan(120L)
         if (pendingProfile != null && (pkg.isBlank() || pkg.contains("settings", true))) scheduleProfileScan(120L)
     }
 
     override fun onInterrupt() = Unit
 
     private fun requestEnsure(target: TileState) {
-        if (pendingEnsureTarget != null) return
+        if (pendingEnsureTarget != null || startupStage != null) return
         pendingEnsureTarget = target
         ensureAttempts = 0
         performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
@@ -84,7 +90,149 @@ class HotspotAutomationService : AccessibilityService() {
         if (pendingEnsureTarget == null) return
         pendingEnsureTarget = null
         ensureAttempts = 0
-        listOf(50L, 220L, 430L, 680L).forEach { delay ->
+        collapseSystemUi()
+    }
+
+    private fun requestStartupRouterMode(onResult: (Boolean, String) -> Unit) {
+        if (startupStage != null || pendingEnsureTarget != null || pendingProfile != null) {
+            onResult(false, "Another ZeroFi automation is already running")
+            return
+        }
+        startupResult = onResult
+        startupStage = StartupStage.WIFI_OFF
+        startupAttempts = 0
+        performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS)
+        scheduleStartupScan(650L)
+    }
+
+    private fun scheduleStartupScan(delayMs: Long) {
+        handler.removeCallbacks(startupScanRunnable)
+        handler.postDelayed(startupScanRunnable, delayMs)
+    }
+
+    private val startupScanRunnable = Runnable { scanStartupRouterMode() }
+
+    private fun scanStartupRouterMode() {
+        val stage = startupStage ?: return
+        startupAttempts++
+        val root = rootInActiveWindow
+        if (root == null) {
+            retryStartup("Android System UI did not expose router controls")
+            return
+        }
+
+        when (stage) {
+            StartupStage.WIFI_OFF -> {
+                val wifi = findBestLabelNode(root, WIFI_LABELS)
+                if (wifi != null) {
+                    when (readTileState(wifi)) {
+                        TileState.OFF -> advanceStartup(StartupStage.MOBILE_DATA_ON)
+                        TileState.ON -> if (clickNodeOrParent(wifi, 8)) handler.postDelayed({ advanceStartup(StartupStage.MOBILE_DATA_ON) }, 650L) else retryStartup("Could not turn Wi-Fi off")
+                        TileState.UNKNOWN -> retryStartup("Waiting for Wi-Fi tile state")
+                    }
+                    return
+                }
+                val internet = findActionableLabelNode(root, INTERNET_LABELS, 8)
+                if (internet != null && clickNodeOrParent(internet, 8)) {
+                    startupStage = StartupStage.INTERNET_WIFI_OFF
+                    startupAttempts = 0
+                    scheduleStartupScan(500L)
+                } else retryStartup("Could not find Wi-Fi or Internet controls")
+            }
+
+            StartupStage.INTERNET_WIFI_OFF -> {
+                val wifi = findBestLabelNode(root, WIFI_LABELS)
+                if (wifi == null) {
+                    retryStartup("Waiting for Wi-Fi control in Internet panel")
+                    return
+                }
+                when (readTileState(wifi)) {
+                    TileState.OFF -> advanceStartup(StartupStage.INTERNET_MOBILE_DATA_ON)
+                    TileState.ON -> if (clickNodeOrParent(wifi, 10)) handler.postDelayed({ advanceStartup(StartupStage.INTERNET_MOBILE_DATA_ON) }, 650L) else retryStartup("Could not turn Wi-Fi off")
+                    TileState.UNKNOWN -> retryStartup("Waiting for Wi-Fi state")
+                }
+            }
+
+            StartupStage.MOBILE_DATA_ON -> {
+                val mobile = findBestLabelNode(root, MOBILE_DATA_LABELS)
+                if (mobile != null) {
+                    when (readTileState(mobile)) {
+                        TileState.ON -> advanceStartup(StartupStage.HOTSPOT_ON)
+                        TileState.OFF -> if (clickNodeOrParent(mobile, 8)) handler.postDelayed({ advanceStartup(StartupStage.HOTSPOT_ON) }, 700L) else retryStartup("Could not turn mobile data on")
+                        TileState.UNKNOWN -> retryStartup("Waiting for mobile data tile state")
+                    }
+                    return
+                }
+                val internet = findActionableLabelNode(root, INTERNET_LABELS, 8)
+                if (internet != null && clickNodeOrParent(internet, 8)) {
+                    startupStage = StartupStage.INTERNET_MOBILE_DATA_ON
+                    startupAttempts = 0
+                    scheduleStartupScan(500L)
+                } else retryStartup("Could not find mobile data or Internet controls")
+            }
+
+            StartupStage.INTERNET_MOBILE_DATA_ON -> {
+                val mobile = findBestLabelNode(root, MOBILE_DATA_LABELS)
+                if (mobile == null) {
+                    retryStartup("Waiting for mobile data control in Internet panel")
+                    return
+                }
+                when (readTileState(mobile)) {
+                    TileState.ON -> advanceStartup(StartupStage.HOTSPOT_ON)
+                    TileState.OFF -> if (clickNodeOrParent(mobile, 10)) handler.postDelayed({ advanceStartup(StartupStage.HOTSPOT_ON) }, 700L) else retryStartup("Could not turn mobile data on")
+                    TileState.UNKNOWN -> retryStartup("Waiting for mobile data state")
+                }
+            }
+
+            StartupStage.HOTSPOT_ON -> {
+                val hotspot = findBestLabelNode(root, HOTSPOT_LABELS)
+                if (hotspot == null) {
+                    if (startupAttempts == 3 || startupAttempts == 6) {
+                        performGlobalAction(GLOBAL_ACTION_BACK)
+                        handler.postDelayed({ performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS) }, 220L)
+                    }
+                    retryStartup("Waiting for hotspot tile")
+                    return
+                }
+                when (readTileState(hotspot)) {
+                    TileState.ON -> finishStartup(true, "Wi-Fi off, mobile data on, hotspot on")
+                    TileState.OFF -> if (clickNodeOrParent(hotspot, 8)) handler.postDelayed({ finishStartup(true, "Wi-Fi off, mobile data on, hotspot on") }, 800L) else retryStartup("Could not turn hotspot on")
+                    TileState.UNKNOWN -> retryStartup("Waiting for hotspot state")
+                }
+            }
+        }
+    }
+
+    private fun advanceStartup(next: StartupStage) {
+        if (startupStage == null) return
+        startupStage = next
+        startupAttempts = 0
+        if (next == StartupStage.HOTSPOT_ON) {
+            performGlobalAction(GLOBAL_ACTION_BACK)
+            handler.postDelayed({ performGlobalAction(GLOBAL_ACTION_QUICK_SETTINGS) }, 220L)
+            scheduleStartupScan(750L)
+        } else {
+            scheduleStartupScan(450L)
+        }
+    }
+
+    private fun retryStartup(reason: String) {
+        if (startupAttempts < 12) scheduleStartupScan(350L) else finishStartup(false, reason)
+    }
+
+    private fun finishStartup(success: Boolean, message: String) {
+        if (startupStage == null && startupResult == null) return
+        startupStage = null
+        startupAttempts = 0
+        handler.removeCallbacks(startupScanRunnable)
+        val callback = startupResult
+        startupResult = null
+        collapseSystemUi()
+        callback?.invoke(success, message)
+    }
+
+    private fun collapseSystemUi() {
+        listOf(60L, 240L, 480L, 760L).forEach { delay ->
             handler.postDelayed({ backIfSystemUiVisible() }, delay)
         }
     }
@@ -95,7 +243,7 @@ class HotspotAutomationService : AccessibilityService() {
     }
 
     private fun requestApplyProfile(request: HotspotProfileRequest, onResult: (Boolean, String) -> Unit) {
-        if (pendingProfile != null) {
+        if (pendingProfile != null || startupStage != null) {
             onResult(false, "Another hotspot update is already running")
             return
         }
@@ -325,12 +473,12 @@ class HotspotAutomationService : AccessibilityService() {
     private fun readTileState(node: AccessibilityNodeInfo): TileState {
         val text = buildNodeLabel(node).lowercase()
         if (node.isCheckable) return if (node.isChecked) TileState.ON else TileState.OFF
-        val off = listOf(" off", "off ", "disabled", "not active", "inactive")
-        val on = listOf(" on", "on ", "enabled", "active")
+        val off = listOf(" off", "off ", "disabled", "not active", "inactive", "turned off")
+        val on = listOf(" on", "on ", "enabled", "active", "turned on")
         if (off.any(text::contains)) return TileState.OFF
         if (on.any(text::contains)) return TileState.ON
         var parent = node.parent
-        repeat(6) {
+        repeat(7) {
             parent ?: return@repeat
             val parentText = buildNodeLabel(parent).lowercase()
             if (parent.isCheckable) return if (parent.isChecked) TileState.ON else TileState.OFF
@@ -342,6 +490,7 @@ class HotspotAutomationService : AccessibilityService() {
     }
 
     private enum class TileState { ON, OFF, UNKNOWN }
+    private enum class StartupStage { WIFI_OFF, INTERNET_WIFI_OFF, MOBILE_DATA_ON, INTERNET_MOBILE_DATA_ON, HOTSPOT_ON }
     private enum class ProfileStage { OPEN_PAGE, WAIT_FOR_DETAIL, SSID, SSID_DIALOG, PASSWORD, PASSWORD_DIALOG, FINALIZE }
     data class HotspotProfileRequest(val ssid: String, val password: String, val openNetwork: Boolean)
 
@@ -352,6 +501,9 @@ class HotspotAutomationService : AccessibilityService() {
         private const val WIFI_TETHER_ACTIVITY = "com.android.settings.Settings\$WifiTetherSettingsActivity"
         @Volatile private var instance: HotspotAutomationService? = null
         private val HOTSPOT_LABELS = listOf("mobile hotspot", "wi-fi hotspot", "wifi hotspot", "personal hotspot", "hotspot")
+        private val WIFI_LABELS = listOf("wi-fi", "wifi", "wlan")
+        private val MOBILE_DATA_LABELS = listOf("mobile data", "cellular data", "mobile network data")
+        private val INTERNET_LABELS = listOf("internet")
         private val HOTSPOT_SETTINGS_LABELS = listOf("wi-fi hotspot", "wifi hotspot", "mobile hotspot", "personal hotspot", "portable hotspot")
         private val SSID_LABELS = listOf("hotspot name", "network name", "wi-fi name", "wifi name", "ssid")
         private val PASSWORD_LABELS = listOf("hotspot password", "password", "passphrase")
@@ -371,6 +523,11 @@ class HotspotAutomationService : AccessibilityService() {
         fun requestEnsureHotspotOff(): Boolean {
             val service = instance ?: return false
             service.handler.post { service.requestEnsure(TileState.OFF) }
+            return true
+        }
+        fun requestStartupRouterMode(onResult: (Boolean, String) -> Unit = { _, _ -> }): Boolean {
+            val service = instance ?: return false
+            service.handler.post { service.requestStartupRouterMode(onResult) }
             return true
         }
         fun requestApplyHotspotProfile(ssid: String, password: String, openNetwork: Boolean, onResult: (Boolean, String) -> Unit): Boolean {
