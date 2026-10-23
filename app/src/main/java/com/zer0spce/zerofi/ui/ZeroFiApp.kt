@@ -7,7 +7,6 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
-import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.zer0spce.zerofi.MainActivity
@@ -76,9 +75,7 @@ fun ZeroFiApp() {
         )
     }
 
-    val phonePermissionLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestPermission()
-    ) { }
+    val phonePermissionLauncher = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) { }
 
     DisposableEffect(tetheringWatcher) {
         runCatching {
@@ -93,7 +90,6 @@ fun ZeroFiApp() {
                     val desiredSsid = preferences.hotspotSsid.trim()
                     val openNetwork = status.security.equals("nopass", true)
                     val exposedPassword = status.password
-
                     if (!exposedPassword.isNullOrBlank()) {
                         preferences.hotspotSsid = liveSsid
                         preferences.hotspotPassword = exposedPassword
@@ -101,12 +97,10 @@ fun ZeroFiApp() {
                         preferences.hotspotProfileConfirmed = true
                     } else if (liveSsid == desiredSsid) {
                         status.security?.let { preferences.hotspotSecurity = it }
-                        val savedPasswordLooksValid = preferences.hotspotPassword.length in 8..63
-                        preferences.hotspotProfileConfirmed = openNetwork || savedPasswordLooksValid
+                        preferences.hotspotProfileConfirmed = openNetwork || preferences.hotspotPassword.length in 8..63
                     } else {
                         preferences.hotspotProfileConfirmed = false
                     }
-
                     settings = settings.copy(
                         hotspotSsid = preferences.hotspotSsid,
                         hotspotPassword = preferences.hotspotPassword,
@@ -134,9 +128,7 @@ fun ZeroFiApp() {
     LaunchedEffect(settings.cycleResetDay, monitor) {
         while (true) {
             monitor?.let {
-                runCatching { it.snapshot(settings.cycleResetDay) }
-                    .getOrNull()
-                    ?.let { s -> snapshot = s }
+                runCatching { it.snapshot(settings.cycleResetDay) }.getOrNull()?.let { s -> snapshot = s }
             }
             lockRunning = runCatching { RouterLockController.isLockTaskRunning(context) }.getOrDefault(false)
             delay(2_000L)
@@ -148,6 +140,20 @@ fun ZeroFiApp() {
         val result = if (lockRunning) RouterLockController.stop(host) else RouterLockController.start(host)
         lockRunning = runCatching { RouterLockController.isLockTaskRunning(context) }.getOrDefault(false)
         Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
+    }
+
+    fun toggleHotspotAutomation() {
+        val host = activity ?: return
+        if (!settings.hotspotAutomationEnabled || !HotspotAutomationService.isEnabled(context)) {
+            preferences.hotspotAutomationEnabled = true
+            settings = settings.copy(hotspotAutomationEnabled = true)
+            HotspotLaunchController.resetSetupPrompt(host)
+            HotspotLaunchController.ensureConfiguredOrRun(host)
+        } else {
+            preferences.hotspotAutomationEnabled = false
+            settings = settings.copy(hotspotAutomationEnabled = false)
+            Toast.makeText(context, "Hotspot automation disabled", Toast.LENGTH_SHORT).show()
+        }
     }
 
     fun applyHotspotProfile(ssid: String, password: String, security: String, band: String) {
@@ -175,19 +181,13 @@ fun ZeroFiApp() {
             hotspotProfileConfirmed = false,
         )
 
-        val host = activity
         if (!HotspotAutomationService.isEnabled(context)) {
+            val host = activity
             if (host != null) {
                 HotspotLaunchController.resetSetupPrompt(host)
                 HotspotLaunchController.ensureConfiguredOrRun(host)
-                Toast.makeText(
-                    context,
-                    "Enable ZeroFi Hotspot Automation, return here, then tap Apply again.",
-                    Toast.LENGTH_LONG,
-                ).show()
-            } else {
-                RouterController.openHotspotSettings(context)
-            }
+                Toast.makeText(context, "Enable ZeroFi Hotspot Automation, return here, then tap Apply again.", Toast.LENGTH_LONG).show()
+            } else RouterController.openHotspotSettings(context)
             return
         }
 
@@ -198,32 +198,20 @@ fun ZeroFiApp() {
         ) { success, message ->
             preferences.hotspotProfileConfirmed = success
             settings = settings.copy(hotspotProfileConfirmed = success)
-            Toast.makeText(
-                context,
-                if (success) "$message. QR code is ready." else message,
-                Toast.LENGTH_LONG,
-            ).show()
+            Toast.makeText(context, if (success) "$message. QR code is ready." else message, Toast.LENGTH_LONG).show()
         }
         if (started) {
-            Toast.makeText(
-                context,
-                "Opening Wi-Fi hotspot settings and applying the profile…",
-                Toast.LENGTH_LONG,
-            ).show()
+            Toast.makeText(context, "Opening Wi-Fi hotspot details and applying the profile…", Toast.LENGTH_LONG).show()
         } else {
             RouterController.openHotspotSettings(context)
-            Toast.makeText(
-                context,
-                "Could not automate this device. Update the hotspot values in Android Settings.",
-                Toast.LENGTH_LONG,
-            ).show()
+            Toast.makeText(context, "Could not automate this device. Update hotspot values in Android Settings.", Toast.LENGTH_LONG).show()
         }
     }
 
     ZeroFiTheme(settings.accentTheme, settings.darkMode, settings.oledSaver) {
         Box(Modifier.fillMaxSize()) {
             when (screen) {
-                AppScreen.DASHBOARD -> DashboardScreen(
+                AppScreen.DASHBOARD -> DashboardScreenV2(
                     snapshot = snapshot,
                     hotspotActive = hotspotActive,
                     hotspotBand = detectedBand ?: settings.preferredBand,
@@ -240,9 +228,7 @@ fun ZeroFiApp() {
                         settings = settings.copy(darkMode = it)
                     },
                     onNavigate = { screen = it },
-                    onRequestPhonePermission = {
-                        runCatching { phonePermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE) }
-                    },
+                    onRequestPhonePermission = { runCatching { phonePermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE) } },
                     onRequestUsageAccess = { RouterController.openUsageAccessSettings(context) },
                     lockRunning = lockRunning,
                     onRouterLockToggle = ::toggleLock,
@@ -264,10 +250,9 @@ fun ZeroFiApp() {
                     onApplyProfile = ::applyHotspotProfile,
                 )
 
-                AppScreen.DEVICES -> DevicesScreen(
-                    hotspotActive,
-                    { screen = AppScreen.DASHBOARD },
-                ) { RouterController.openHotspotSettings(context) }
+                AppScreen.DEVICES -> DevicesScreen(hotspotActive, { screen = AppScreen.DASHBOARD }) {
+                    RouterController.openHotspotSettings(context)
+                }
 
                 AppScreen.DATA -> DataScreen(
                     snapshot,
@@ -309,29 +294,34 @@ fun ZeroFiApp() {
                     { activity?.setAppBrightness(null) },
                 )
 
-                AppScreen.SETTINGS -> SettingsScreen(
-                    settings,
-                    RouterLockController.isDeviceOwner(context),
-                    lockRunning,
-                    DedicatedModeController.isSupported(context),
-                    { screen = AppScreen.DASHBOARD },
-                    {
+                AppScreen.SETTINGS -> RouterSettingsV2(
+                    settings = settings,
+                    deviceOwner = RouterLockController.isDeviceOwner(context),
+                    lockRunning = lockRunning,
+                    dedicatedModeSupported = DedicatedModeController.isSupported(context),
+                    automationConfigured = HotspotAutomationService.isEnabled(context),
+                    onBack = { screen = AppScreen.DASHBOARD },
+                    onAutoLaunchChanged = {
                         preferences.autoLaunchOnBoot = it
                         settings = settings.copy(autoLaunchOnBoot = it)
                     },
-                    ::toggleLock,
-                    { enabled ->
-                        val r = runCatching {
-                            DedicatedModeController.setUserAppsSuspended(context, enabled)
-                        }.getOrNull()
-                        if (r?.success == true) {
+                    onRouterLockToggle = ::toggleLock,
+                    onDedicatedBatterySaverChanged = { enabled ->
+                        val result = runCatching { DedicatedModeController.setUserAppsSuspended(context, enabled) }.getOrNull()
+                        if (result?.success == true) {
                             preferences.dedicatedBatterySaver = enabled
                             settings = settings.copy(dedicatedBatterySaver = enabled)
                         }
                     },
-                    { RouterController.openAppSettings(context) },
-                    { screen = AppScreen.DIAGNOSTICS },
-                    { screen = AppScreen.STANDBY },
+                    onOpenDisplay = { screen = AppScreen.DISPLAY },
+                    onOledSaverChanged = {
+                        preferences.oledSaver = it
+                        settings = settings.copy(oledSaver = it)
+                    },
+                    onAutomationClick = ::toggleHotspotAutomation,
+                    onOpenAppSettings = { RouterController.openAppSettings(context) },
+                    onDiagnostics = { screen = AppScreen.DIAGNOSTICS },
+                    onStandby = { screen = AppScreen.STANDBY },
                 )
 
                 AppScreen.DIAGNOSTICS -> DiagnosticsScreen(
@@ -343,37 +333,6 @@ fun ZeroFiApp() {
                 AppScreen.STANDBY -> StandbyScreen(snapshot, hotspotActive) {
                     screen = AppScreen.DASHBOARD
                 }
-            }
-
-            if (screen == AppScreen.DISPLAY) {
-                OledSaverOverlay(
-                    enabled = settings.oledSaver,
-                    onEnabledChange = {
-                        preferences.oledSaver = it
-                        settings = settings.copy(oledSaver = it)
-                    },
-                    modifier = Modifier.align(Alignment.BottomCenter),
-                )
-            }
-
-            if (screen == AppScreen.SETTINGS) {
-                HotspotAutomationSettingsButton(
-                    enabled = settings.hotspotAutomationEnabled,
-                    configured = HotspotAutomationService.isEnabled(context),
-                    onClick = {
-                        val host = activity ?: return@HotspotAutomationSettingsButton
-                        if (!settings.hotspotAutomationEnabled || !HotspotAutomationService.isEnabled(context)) {
-                            preferences.hotspotAutomationEnabled = true
-                            settings = settings.copy(hotspotAutomationEnabled = true)
-                            HotspotLaunchController.resetSetupPrompt(host)
-                            HotspotLaunchController.ensureConfiguredOrRun(host)
-                        } else {
-                            preferences.hotspotAutomationEnabled = false
-                            settings = settings.copy(hotspotAutomationEnabled = false)
-                            Toast.makeText(context, "Hotspot automation disabled", Toast.LENGTH_SHORT).show()
-                        }
-                    },
-                )
             }
         }
     }
