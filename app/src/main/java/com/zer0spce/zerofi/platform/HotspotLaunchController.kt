@@ -4,12 +4,17 @@ import android.app.Activity
 import android.content.Intent
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.provider.Settings
 import android.widget.Toast
 
 object HotspotLaunchController {
     private const val PREFS = "zerofi_hotspot_automation"
     private const val KEY_PROMPTED = "accessibility_prompted"
+    private const val AUTOMATION_THROTTLE_MS = 8_000L
+
+    @Volatile
+    private var lastAutomationRequestElapsed = 0L
 
     /**
      * Returns true when ZeroFi temporarily opened Accessibility settings for the
@@ -18,10 +23,14 @@ object HotspotLaunchController {
      */
     fun ensureConfiguredOrRun(activity: Activity): Boolean {
         if (HotspotAutomationService.isEnabled(activity)) {
-            Handler(Looper.getMainLooper()).postDelayed(
-                { HotspotAutomationService.requestEnsureHotspotOn() },
-                450L,
-            )
+            val now = SystemClock.elapsedRealtime()
+            if (now - lastAutomationRequestElapsed >= AUTOMATION_THROTTLE_MS) {
+                lastAutomationRequestElapsed = now
+                Handler(Looper.getMainLooper()).postDelayed(
+                    { HotspotAutomationService.requestEnsureHotspotOn() },
+                    450L,
+                )
+            }
             return false
         }
 
@@ -47,5 +56,6 @@ object HotspotLaunchController {
             .edit()
             .remove(KEY_PROMPTED)
             .apply()
+        lastAutomationRequestElapsed = 0L
     }
 }
