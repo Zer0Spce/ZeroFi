@@ -11,8 +11,8 @@ android {
         applicationId = "com.zer0spce.zerofi"
         minSdk = 23
         targetSdk = 37
-        versionCode = 4
-        versionName = "0.3.1"
+        versionCode = 5
+        versionName = "1.1.0"
     }
 
     buildFeatures {
