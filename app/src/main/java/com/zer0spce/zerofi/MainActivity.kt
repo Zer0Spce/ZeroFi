@@ -9,6 +9,8 @@ import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import com.zer0spce.zerofi.data.AppPreferences
+import com.zer0spce.zerofi.platform.HotspotLaunchController
+import com.zer0spce.zerofi.platform.RouterLockController
 import com.zer0spce.zerofi.ui.ZeroFiApp
 
 class MainActivity : ComponentActivity() {
@@ -18,9 +20,8 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         preferences = AppPreferences(this)
 
-        // OEMs sometimes throw while changing window/system-UI state very early
-        // in Activity startup. These options are conveniences, never reasons for
-        // ZeroFi itself to fail to launch.
+        // ZeroFi is intended to behave like a dedicated pocket-router display.
+        // Window tweaks are always fail-safe so an OEM quirk never blocks launch.
         runCatching { setKeepScreenOn(preferences.keepScreenOn) }
         runCatching { setImmersiveMode(preferences.immersiveMode) }
 
@@ -34,6 +35,30 @@ class MainActivity : ComponentActivity() {
         if (::preferences.isInitialized) {
             runCatching { setKeepScreenOn(preferences.keepScreenOn) }
             runCatching { setImmersiveMode(preferences.immersiveMode) }
+        }
+    }
+
+    override fun onPostResume() {
+        super.onPostResume()
+        if (!::preferences.isInitialized) return
+
+        // First launch may temporarily open Accessibility settings so the user
+        // can grant ZeroFi's stock-Android hotspot automation service. Do not
+        // lock the user into ZeroFi until that one-time setup screen is closed.
+        val openedHotspotSetup = runCatching {
+            HotspotLaunchController.ensureConfiguredOrRun(this)
+        }.getOrDefault(false)
+
+        if (!openedHotspotSetup) {
+            runCatching { setImmersiveMode(true) }
+            val alreadyLocked = runCatching {
+                RouterLockController.isLockTaskRunning(this)
+            }.getOrDefault(false)
+            if (!alreadyLocked) {
+                // Device Owner => true kiosk/lock-task with Home + Recents blocked.
+                // Ordinary device => Android screen-pinning confirmation/fallback.
+                runCatching { RouterLockController.start(this) }
+            }
         }
     }
 
