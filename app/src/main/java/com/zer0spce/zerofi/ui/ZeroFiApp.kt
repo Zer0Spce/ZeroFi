@@ -7,6 +7,7 @@ import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
 import com.zer0spce.zerofi.MainActivity
@@ -342,6 +343,17 @@ fun ZeroFiApp() {
                 AppScreen.STANDBY -> StandbyScreen(snapshot, hotspotActive) {
                     screen = AppScreen.DASHBOARD
                 }
+            }
+
+            if (screen == AppScreen.DISPLAY) {
+                OledSaverOverlay(
+                    enabled = settings.oledSaver,
+                    onEnabledChange = {
+                        preferences.oledSaver = it
+                        settings = settings.copy(oledSaver = it)
+                    },
+                    modifier = Modifier.align(Alignment.BottomCenter),
+                )
             }
 
             if (screen == AppScreen.SETTINGS) {
