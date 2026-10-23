@@ -55,14 +55,16 @@ fun ZeroFiApp() {
     val context = LocalContext.current
     val activity = context as? MainActivity
     val preferences = remember { AppPreferences(context) }
-    val monitor = remember { SystemMonitor(context) }
-    val tetheringWatcher = remember { TetheringWatcher(context) }
+    val monitor = remember { runCatching { SystemMonitor(context) }.getOrNull() }
+    val tetheringWatcher = remember { runCatching { TetheringWatcher(context) }.getOrNull() }
 
     var screen by remember { mutableStateOf(AppScreen.DASHBOARD) }
     var snapshot by remember { mutableStateOf(SystemSnapshot()) }
     var hotspotActive by remember { mutableStateOf<Boolean?>(null) }
     var detectedBand by remember { mutableStateOf<String?>(null) }
-    var lockRunning by remember { mutableStateOf(RouterLockController.isLockTaskRunning(context)) }
+    var lockRunning by remember {
+        mutableStateOf(runCatching { RouterLockController.isLockTaskRunning(context) }.getOrDefault(false))
+    }
     var settings by remember {
         mutableStateOf(
             ZeroFiSettingsState(
@@ -89,24 +91,36 @@ fun ZeroFiApp() {
         // The polling loop refreshes after returning.
     }
 
-    DisposableEffect(Unit) {
-        tetheringWatcher.start { active, band ->
-            hotspotActive = active
-            detectedBand = band
+    DisposableEffect(tetheringWatcher) {
+        runCatching {
+            tetheringWatcher?.start { active, band ->
+                hotspotActive = active
+                detectedBand = band
+            }
+        }.onFailure {
+            hotspotActive = null
+            detectedBand = null
         }
-        onDispose { tetheringWatcher.stop() }
+        onDispose { runCatching { tetheringWatcher?.stop() } }
     }
 
     LaunchedEffect(Unit) {
-        if (settings.dedicatedBatterySaver && DedicatedModeController.isSupported(context)) {
-            DedicatedModeController.setUserAppsSuspended(context, true)
+        runCatching {
+            if (settings.dedicatedBatterySaver && DedicatedModeController.isSupported(context)) {
+                DedicatedModeController.setUserAppsSuspended(context, true)
+            }
         }
     }
 
-    LaunchedEffect(settings.cycleResetDay) {
+    LaunchedEffect(settings.cycleResetDay, monitor) {
         while (true) {
-            snapshot = monitor.snapshot(settings.cycleResetDay)
-            lockRunning = RouterLockController.isLockTaskRunning(context)
+            if (monitor != null) {
+                runCatching { monitor.snapshot(settings.cycleResetDay) }
+                    .getOrNull()
+                    ?.let { snapshot = it }
+            }
+            lockRunning = runCatching { RouterLockController.isLockTaskRunning(context) }
+                .getOrDefault(false)
             delay(3_000L)
         }
     }
@@ -135,7 +149,7 @@ fun ZeroFiApp() {
                 },
                 onNavigate = { screen = it },
                 onRequestPhonePermission = {
-                    phonePermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE)
+                    runCatching { phonePermissionLauncher.launch(Manifest.permission.READ_PHONE_STATE) }
                 },
                 onRequestUsageAccess = { RouterController.openUsageAccessSettings(context) },
             )
@@ -195,12 +209,12 @@ fun ZeroFiApp() {
                 onKeepScreenOnChanged = { enabled ->
                     preferences.keepScreenOn = enabled
                     settings = settings.copy(keepScreenOn = enabled)
-                    activity?.setKeepScreenOn(enabled)
+                    runCatching { activity?.setKeepScreenOn(enabled) }
                 },
                 onImmersiveModeChanged = { enabled ->
                     preferences.immersiveMode = enabled
                     settings = settings.copy(immersiveMode = enabled)
-                    activity?.setImmersiveMode(enabled)
+                    runCatching { activity?.setImmersiveMode(enabled) }
                 },
                 onOledSaverChanged = { enabled ->
                     preferences.oledSaver = enabled
@@ -210,15 +224,15 @@ fun ZeroFiApp() {
                         darkMode = if (enabled) true else settings.darkMode,
                     )
                 },
-                onBrightnessChanged = { value -> activity?.setAppBrightness(value) },
-                onSystemBrightness = { activity?.setAppBrightness(null) },
+                onBrightnessChanged = { value -> runCatching { activity?.setAppBrightness(value) } },
+                onSystemBrightness = { runCatching { activity?.setAppBrightness(null) } },
             )
 
             AppScreen.SETTINGS -> SettingsScreen(
                 settings = settings,
-                deviceOwner = RouterLockController.isDeviceOwner(context),
+                deviceOwner = runCatching { RouterLockController.isDeviceOwner(context) }.getOrDefault(false),
                 lockRunning = lockRunning,
-                dedicatedModeSupported = DedicatedModeController.isSupported(context),
+                dedicatedModeSupported = runCatching { DedicatedModeController.isSupported(context) }.getOrDefault(false),
                 onBack = { screen = AppScreen.DASHBOARD },
                 onAutoLaunchChanged = { enabled ->
                     preferences.autoLaunchOnBoot = enabled
@@ -230,12 +244,21 @@ fun ZeroFiApp() {
                         Toast.makeText(context, "Router Lock unavailable", Toast.LENGTH_SHORT).show()
                     } else {
                         val result = if (lockRunning) RouterLockController.stop(host) else RouterLockController.start(host)
-                        lockRunning = RouterLockController.isLockTaskRunning(context)
+                        lockRunning = runCatching { RouterLockController.isLockTaskRunning(context) }.getOrDefault(false)
                         Toast.makeText(context, result.message, Toast.LENGTH_LONG).show()
                     }
                 },
                 onDedicatedBatterySaverChanged = { enabled ->
-                    val result = DedicatedModeController.setUserAppsSuspended(context, enabled)
+                    val result = runCatching {
+                        DedicatedModeController.setUserAppsSuspended(context, enabled)
+                    }.getOrElse {
+                        com.zer0spce.zerofi.platform.DedicatedModeResult(
+                            success = false,
+                            changedPackages = 0,
+                            failedPackages = emptyList(),
+                            message = it.message ?: "Dedicated Battery Saver unavailable",
+                        )
+                    }
                     if (result.success) {
                         preferences.dedicatedBatterySaver = enabled
                         settings = settings.copy(dedicatedBatterySaver = enabled)
