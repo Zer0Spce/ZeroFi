@@ -6,15 +6,15 @@ import android.content.Context
 import android.content.pm.ApplicationInfo
 import android.content.pm.PackageManager
 import android.os.Build
+import android.provider.Settings
 import com.zer0spce.zerofi.admin.ZeroFiDeviceAdminReceiver
 
 /**
  * Optional battery-saving companion to Router Lock.
  *
  * On Android 7+ when ZeroFi is Device Owner, ordinary user-installed apps can be
- * suspended while ZeroFi is acting as a dedicated router. We intentionally do
- * not touch system apps, the launcher, phone, permission controller, Settings,
- * package installer/uninstaller, or any package Android refuses to suspend.
+ * suspended while ZeroFi is acting as a dedicated router. System packages and
+ * the currently selected keyboard are deliberately protected.
  */
 object DedicatedModeController {
     private fun adminComponent(context: Context) =
@@ -47,9 +47,18 @@ object DedicatedModeController {
         }
 
         val packageManager = context.packageManager
+        val protectedPackages = if (suspended) {
+            buildSet {
+                add(context.packageName)
+                currentInputMethodPackage(context)?.let(::add)
+            }
+        } else {
+            setOf(context.packageName)
+        }
+
         val candidates = packageManager.getInstalledApplications(PackageManager.GET_META_DATA)
             .asSequence()
-            .filter { it.packageName != context.packageName }
+            .filter { it.packageName !in protectedPackages }
             .filter { app ->
                 val isSystem = app.flags and ApplicationInfo.FLAG_SYSTEM != 0
                 val isUpdatedSystem = app.flags and ApplicationInfo.FLAG_UPDATED_SYSTEM_APP != 0
@@ -93,6 +102,14 @@ object DedicatedModeController {
                 message = error.message ?: "Unable to change app suspension state",
             )
         }
+    }
+
+    private fun currentInputMethodPackage(context: Context): String? {
+        val flattened = Settings.Secure.getString(
+            context.contentResolver,
+            Settings.Secure.DEFAULT_INPUT_METHOD,
+        ) ?: return null
+        return ComponentName.unflattenFromString(flattened)?.packageName
     }
 }
 
