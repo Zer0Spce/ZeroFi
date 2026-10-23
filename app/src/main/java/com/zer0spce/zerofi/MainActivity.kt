@@ -17,8 +17,12 @@ class MainActivity : ComponentActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         preferences = AppPreferences(this)
-        setKeepScreenOn(preferences.keepScreenOn)
-        setImmersiveMode(preferences.immersiveMode)
+
+        // OEMs sometimes throw while changing window/system-UI state very early
+        // in Activity startup. These options are conveniences, never reasons for
+        // ZeroFi itself to fail to launch.
+        runCatching { setKeepScreenOn(preferences.keepScreenOn) }
+        runCatching { setImmersiveMode(preferences.immersiveMode) }
 
         setContent {
             ZeroFiApp()
@@ -28,15 +32,15 @@ class MainActivity : ComponentActivity() {
     override fun onResume() {
         super.onResume()
         if (::preferences.isInitialized) {
-            setKeepScreenOn(preferences.keepScreenOn)
-            setImmersiveMode(preferences.immersiveMode)
+            runCatching { setKeepScreenOn(preferences.keepScreenOn) }
+            runCatching { setImmersiveMode(preferences.immersiveMode) }
         }
     }
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
         if (hasFocus && ::preferences.isInitialized && preferences.immersiveMode) {
-            hideSystemUi()
+            runCatching { hideSystemUi() }
         }
     }
 
