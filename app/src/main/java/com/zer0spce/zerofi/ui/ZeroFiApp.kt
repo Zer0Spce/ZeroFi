@@ -111,9 +111,6 @@ fun ZeroFiApp() {
                     }, { RouterController.openAppSettings(context) })
             }
 
-            if (screen == AppScreen.DASHBOARD) {
-                HomeLockButton(locked = lockRunning, onClick = ::toggleLock)
-            }
             if (screen == AppScreen.SETTINGS) {
                 HotspotAutomationSettingsButton(
                     enabled = settings.hotspotAutomationEnabled,
