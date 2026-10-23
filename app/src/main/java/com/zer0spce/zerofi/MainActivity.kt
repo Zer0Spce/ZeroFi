@@ -39,10 +39,9 @@ class MainActivity : ComponentActivity() {
         super.onPostResume()
         if (!::preferences.isInitialized) return
 
-        // Keep ZeroFi's automatic hotspot/accessibility helper. On first use it
-        // can open Accessibility settings for setup; once enabled it can run the
-        // hotspot flow automatically when ZeroFi returns to the foreground.
-        // Router Lock / Android screen pinning remains strictly manual.
+        // Automatic hotspot/accessibility setup is intentionally retained.
+        // Android screen pinning / Router Lock is NOT started here; that remains
+        // a manual action from ZeroFi settings.
         runCatching { HotspotLaunchController.ensureConfiguredOrRun(this) }
     }
 
