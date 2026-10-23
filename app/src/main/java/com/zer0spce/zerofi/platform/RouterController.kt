@@ -41,12 +41,14 @@ object RouterController {
     }
 
     fun openAppSettings(context: Context) {
-        context.startActivity(
-            Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
-                data = Uri.parse("package:${context.packageName}")
-                addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
-            },
-        )
+        runCatching {
+            context.startActivity(
+                Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS).apply {
+                    data = Uri.parse("package:${context.packageName}")
+                    addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+                },
+            )
+        }
     }
 
     private fun launchSettings(context: Context, primary: Intent, fallback: Intent) {
@@ -61,25 +63,23 @@ object RouterLockController {
     private fun adminComponent(context: Context) =
         ComponentName(context, ZeroFiDeviceAdminReceiver::class.java)
 
-    fun isDeviceOwner(context: Context): Boolean {
-        val dpm = context.getSystemService(DevicePolicyManager::class.java)
-        return dpm.isDeviceOwnerApp(context.packageName)
-    }
+    fun isDeviceOwner(context: Context): Boolean = runCatching {
+        val dpm = context.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+        dpm?.isDeviceOwnerApp(context.packageName) == true
+    }.getOrDefault(false)
 
-    fun isLockTaskRunning(context: Context): Boolean {
-        val activityManager = context.getSystemService(ActivityManager::class.java)
-        return activityManager.lockTaskModeState != ActivityManager.LOCK_TASK_MODE_NONE
-    }
+    fun isLockTaskRunning(context: Context): Boolean = runCatching {
+        val activityManager = context.getSystemService(Context.ACTIVITY_SERVICE) as? ActivityManager
+        activityManager?.lockTaskModeState != null &&
+            activityManager.lockTaskModeState != ActivityManager.LOCK_TASK_MODE_NONE
+    }.getOrDefault(false)
 
     fun start(activity: Activity): LockResult {
-        val dpm = activity.getSystemService(DevicePolicyManager::class.java)
-        val owner = dpm.isDeviceOwnerApp(activity.packageName)
+        val dpm = activity.getSystemService(Context.DEVICE_POLICY_SERVICE) as? DevicePolicyManager
+        val owner = runCatching { dpm?.isDeviceOwnerApp(activity.packageName) == true }.getOrDefault(false)
         return runCatching {
-            if (owner) {
+            if (owner && dpm != null) {
                 dpm.setLockTaskPackages(adminComponent(activity), arrayOf(activity.packageName))
-                // setLockTaskFeatures was added in Android 9 / API 28. Older
-                // Android versions can still use Device Owner lock task mode;
-                // they simply keep the platform's default lock-task features.
                 if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
                     dpm.setLockTaskFeatures(
                         adminComponent(activity),
