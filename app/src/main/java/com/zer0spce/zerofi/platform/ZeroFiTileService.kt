@@ -6,8 +6,10 @@ import android.content.Intent
 import android.os.Build
 import android.service.quicksettings.Tile
 import android.service.quicksettings.TileService
+import androidx.annotation.RequiresApi
 import com.zer0spce.zerofi.MainActivity
 
+@RequiresApi(Build.VERSION_CODES.N)
 class ZeroFiTileService : TileService() {
     override fun onStartListening() {
         super.onStartListening()
@@ -25,7 +27,9 @@ class ZeroFiTileService : TileService() {
         if (active) HotspotAutomationService.requestEnsureHotspotOff() else HotspotAutomationService.requestEnsureHotspotOn()
         qsTile?.state = if (active) Tile.STATE_INACTIVE else Tile.STATE_ACTIVE
         qsTile?.label = "ZeroFi"
-        qsTile?.subtitle = if (active) "Turning off…" else "Turning on…"
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            qsTile?.subtitle = if (active) "Turning off…" else "Turning on…"
+        }
         qsTile?.updateTile()
     }
 
