@@ -32,9 +32,13 @@ class AppPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_KEEP_SCREEN_ON, true)
         set(value) = prefs.edit().putBoolean(KEY_KEEP_SCREEN_ON, value).apply()
 
+    // Automatic app launch is intentionally disabled. ZeroFi should only open
+    // when the user opens it, rather than taking over the device after boot.
     var autoLaunchOnBoot: Boolean
-        get() = prefs.getBoolean(KEY_AUTO_LAUNCH, false)
-        set(value) = prefs.edit().putBoolean(KEY_AUTO_LAUNCH, value).apply()
+        get() = false
+        set(@Suppress("UNUSED_PARAMETER") value) {
+            prefs.edit().putBoolean(KEY_AUTO_LAUNCH, false).apply()
+        }
 
     var immersiveMode: Boolean
         get() = prefs.getBoolean(KEY_IMMERSIVE, true)
