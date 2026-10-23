@@ -16,6 +16,10 @@ class AppPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_DARK_MODE, true)
         set(value) = prefs.edit().putBoolean(KEY_DARK_MODE, value).apply()
 
+    var oledSaver: Boolean
+        get() = prefs.getBoolean(KEY_OLED_SAVER, false)
+        set(value) = prefs.edit().putBoolean(KEY_OLED_SAVER, value).apply()
+
     var dataLimitGb: Float
         get() = prefs.getFloat(KEY_DATA_LIMIT_GB, 50f)
         set(value) = prefs.edit().putFloat(KEY_DATA_LIMIT_GB, value.coerceIn(1f, 9999f)).apply()
@@ -60,6 +64,7 @@ class AppPreferences(context: Context) {
         private const val PREFS_NAME = "zerofi_preferences"
         private const val KEY_ACCENT = "accent_theme"
         private const val KEY_DARK_MODE = "dark_mode"
+        private const val KEY_OLED_SAVER = "oled_saver"
         private const val KEY_DATA_LIMIT_GB = "data_limit_gb"
         private const val KEY_CYCLE_DAY = "cycle_reset_day"
         private const val KEY_KEEP_SCREEN_ON = "keep_screen_on"
