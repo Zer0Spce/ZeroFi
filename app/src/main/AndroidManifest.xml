@@ -45,6 +45,19 @@
             </intent-filter>
         </activity>
 
+        <service
+            android:name=".platform.HotspotAutomationService"
+            android:exported="true"
+            android:label="ZeroFi Hotspot Automation"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/hotspot_automation_service" />
+        </service>
+
         <receiver
             android:name=".admin.ZeroFiDeviceAdminReceiver"
             android:description="@string/device_admin_description"
