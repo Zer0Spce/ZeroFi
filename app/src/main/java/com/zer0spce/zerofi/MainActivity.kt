@@ -8,26 +8,55 @@ import android.view.WindowInsetsController
 import android.view.WindowManager
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
+import com.zer0spce.zerofi.data.AppPreferences
 import com.zer0spce.zerofi.ui.ZeroFiApp
 
 class MainActivity : ComponentActivity() {
+    private lateinit var preferences: AppPreferences
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-
-        // A pocket-router dashboard should not dim while the user is actively using it.
-        // A user-facing display setting will make this configurable later.
-        window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        hideSystemUi()
+        preferences = AppPreferences(this)
+        setKeepScreenOn(preferences.keepScreenOn)
+        setImmersiveMode(preferences.immersiveMode)
 
         setContent {
             ZeroFiApp()
         }
     }
 
+    override fun onResume() {
+        super.onResume()
+        if (::preferences.isInitialized) {
+            setKeepScreenOn(preferences.keepScreenOn)
+            setImmersiveMode(preferences.immersiveMode)
+        }
+    }
+
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
-        if (hasFocus) hideSystemUi()
+        if (hasFocus && ::preferences.isInitialized && preferences.immersiveMode) {
+            hideSystemUi()
+        }
+    }
+
+    fun setKeepScreenOn(enabled: Boolean) {
+        if (enabled) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        } else {
+            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+        }
+    }
+
+    fun setImmersiveMode(enabled: Boolean) {
+        if (enabled) hideSystemUi() else showSystemUi()
+    }
+
+    fun setAppBrightness(value: Float?) {
+        val params = window.attributes
+        params.screenBrightness = value?.coerceIn(0.05f, 1f)
+            ?: WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        window.attributes = params
     }
 
     @Suppress("DEPRECATION")
@@ -46,6 +75,15 @@ class MainActivity : ComponentActivity() {
                     View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN or
                     View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION or
                     View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun showSystemUi() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+            window.insetsController?.show(WindowInsets.Type.statusBars() or WindowInsets.Type.navigationBars())
+        } else {
+            window.decorView.systemUiVisibility = View.SYSTEM_UI_FLAG_VISIBLE
         }
     }
 }
