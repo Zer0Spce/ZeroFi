@@ -27,7 +27,6 @@ class AppPreferences(context: Context) {
         get() = prefs.getInt(KEY_CYCLE_DAY, 1).coerceIn(1, 28)
         set(value) = prefs.edit().putInt(KEY_CYCLE_DAY, value.coerceIn(1, 28)).apply()
 
-    // Default OFF so a spare router phone is allowed to sleep and save battery.
     var keepScreenOn: Boolean
         get() = prefs.getBoolean(KEY_KEEP_SCREEN_ON, false)
         set(value) = prefs.edit().putBoolean(KEY_KEEP_SCREEN_ON, value).apply()
@@ -36,7 +35,6 @@ class AppPreferences(context: Context) {
         get() = prefs.getBoolean(KEY_AUTO_LAUNCH, false)
         set(value) = prefs.edit().putBoolean(KEY_AUTO_LAUNCH, value).apply()
 
-    // Opt-in only. ZeroFi never pushes Accessibility setup on first launch.
     var hotspotAutomationEnabled: Boolean
         get() = prefs.getBoolean(KEY_HOTSPOT_AUTOMATION, false)
         set(value) = prefs.edit().putBoolean(KEY_HOTSPOT_AUTOMATION, value).apply()
@@ -61,6 +59,10 @@ class AppPreferences(context: Context) {
         get() = prefs.getString(KEY_HOTSPOT_SECURITY, "WPA") ?: "WPA"
         set(value) = prefs.edit().putString(KEY_HOTSPOT_SECURITY, value).apply()
 
+    var hotspotProfileConfirmed: Boolean
+        get() = prefs.getBoolean(KEY_HOTSPOT_PROFILE_CONFIRMED, false)
+        set(value) = prefs.edit().putBoolean(KEY_HOTSPOT_PROFILE_CONFIRMED, value).apply()
+
     var preferredBand: String
         get() = prefs.getString(KEY_BAND, "System") ?: "System"
         set(value) = prefs.edit().putString(KEY_BAND, value).apply()
@@ -80,6 +82,7 @@ class AppPreferences(context: Context) {
         private const val KEY_HOTSPOT_SSID = "hotspot_ssid"
         private const val KEY_HOTSPOT_PASSWORD = "hotspot_password"
         private const val KEY_HOTSPOT_SECURITY = "hotspot_security"
+        private const val KEY_HOTSPOT_PROFILE_CONFIRMED = "hotspot_profile_confirmed"
         private const val KEY_BAND = "preferred_band"
     }
 }
